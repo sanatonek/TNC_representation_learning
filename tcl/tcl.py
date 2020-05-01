@@ -10,9 +10,13 @@ import numpy as np
 import pickle
 import os
 import pandas as pd
+import random
 
-from tcl.models import RnnEncoder
-from tcl.evaluations import ClassificationPerformanceExperiment
+from tcl.models import RnnEncoder, MimicEncoder, WFEncoder, WaveNetModel
+from tcl.evaluations import ClassificationPerformanceExperiment, WFClassificationExperiment
+from tcl.utils import PatientData, plot_distribution, model_distribution
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 class Discriminator(torch.nn.Module):
@@ -20,10 +24,23 @@ class Discriminator(torch.nn.Module):
         super(Discriminator, self).__init__()
         self.device = device
         self.input_size = input_size
-        self.model = torch.nn.Sequential(torch.nn.Linear(2*self.input_size, 32),
-                                         torch.nn.ReLU(),
-                                         torch.nn.Linear(32, 1),
+        # self.model = torch.nn.Sequential(torch.nn.Linear(2*self.input_size, 4*self.input_size),
+        #                                  # torch.nn.BatchNorm1d(32),
+        #                                  torch.nn.ReLU(),
+        #                                  torch.nn.Linear(4*self.input_size, 1),
+        #                                  torch.nn.Sigmoid())
+        # torch.nn.init.xavier_uniform_(self.model[0].weight)
+        # torch.nn.init.xavier_uniform_(self.model[2].weight)
+
+        self.model = torch.nn.Sequential(torch.nn.Linear(2*self.input_size, 4*self.input_size),
+                                         torch.nn.ReLU(inplace=True),
+                                         torch.nn.Dropout(0.5),
+                                         # torch.nn.BatchNorm1d(4*self.input_size),
+                                         torch.nn.Linear(4*self.input_size, 1),
                                          torch.nn.Sigmoid())
+
+        torch.nn.init.xavier_uniform_(self.model[0].weight)
+        torch.nn.init.xavier_uniform_(self.model[3].weight)
 
     def forward(self, x, x_tild):
         """
@@ -35,206 +52,163 @@ class Discriminator(torch.nn.Module):
 
 
 class TCLDataset(data.Dataset):
-    def __init__(self, x, mc_sample_size, neighbouring_delta, window_size, state=None):
+    def __init__(self, x, mc_sample_size, epsilon, delta, window_size, augmentation, state=None):
         super(TCLDataset, self).__init__()
         self.time_series = x
-        self.delta = neighbouring_delta
+        self.T = x.shape[-1]
+        self.epsilon = epsilon
+        self.delta = delta
         self.window_size = window_size
+        self.sliding_gap = window_size*2
+        self.window_per_sample = (self.T-self.window_size)//self.sliding_gap
         self.mc_sample_size = mc_sample_size
         self.state = state
+        self.augmentation = augmentation
 
     def __len__(self):
-        return len(self.time_series)
+        # return len(self.time_series)*self.augmentation
+        return len(self.time_series) * self.window_per_sample
 
     def __getitem__(self, ind):
-        T = self.time_series.shape[-1]
-        t = np.random.randint(self.delta, T-self.window_size-self.delta)
-        x_t = self.time_series[ind,:,t:t+self.window_size]
-        X_close = self._find_neighours(self.time_series[ind], t)
-        X_distant = self._find_non_neighours(self.time_series[ind], t)
+        # ind = ind%len(self.time_series)
+        # t = np.random.randint(self.window_size+2*self.epsilon, self.T-self.window_size-2*self.epsilon)
+        # x_t = self.time_series[ind][:,t-self.window_size//2:t+self.window_size//2]  # TODO: add padding for windows that are smaller
+        # X_close = self._find_neighours(self.time_series[ind], t)
+        # X_distant = self._find_non_neighours(self.time_series[ind], t)
+
+        i = ind//self.window_per_sample
+        t = ind%self.window_per_sample + self.window_size//2
+        x_t = self.time_series[i][:, t - self.window_size // 2:t + self.window_size // 2]
+        X_close = self._find_neighours(self.time_series[i], t)
+        X_distant = self._find_non_neighours(self.time_series[i], t)
+
         if self.state is None:
             y_t = -1
         else:
-            y_t = self.state[t]
+            y_t = np.round(np.mean(self.state[ind][t-self.window_size//2:t+self.window_size//2]))# self.state[t] # TODO: Maybe change this to the average of states within the window
         return x_t, X_close, X_distant, y_t
 
     def _find_neighours(self, x, t):
         T = self.time_series.shape[-1]
-        t_p = np.random.randint(max(0, t - self.delta - self.window_size), min(t + self.window_size + self.delta, T - self.window_size), self.mc_sample_size)
-        x_p = torch.stack([x[:, t_ind:t_ind + self.window_size] for t_ind in t_p])
+        # t_p = np.random.randint(max(0, t - self.epsilon - self.window_size), min(t + self.window_size + self.epsilon, T - self.window_size), self.mc_sample_size)
+        # t_p = np.random.randint(max(0, t - self.epsilon), min(t + self.window_size + self.epsilon, T - self.window_size), self.mc_sample_size)
+        t_p = [int(t+np.random.randn()*self.epsilon) for _ in range(self.mc_sample_size)]
+        t_p = [max(self.window_size//2+1,min(t_pp,T-self.window_size//2)) for t_pp in t_p]
+        x_p = torch.stack([x[:, t_ind-self.window_size//2:t_ind+self.window_size//2] for t_ind in t_p])
         return x_p
 
     def _find_non_neighours(self, x, t):
         T = self.time_series.shape[-1]
         if t>T/2:
-            t_n = np.random.randint(min(0, t - 5*self.delta), (t - 5*self.delta + 1), self.mc_sample_size)
+            t_n = np.random.randint(min(self.window_size//2+1, t - self.delta), (t - self.delta + 1), self.mc_sample_size)
         else:
-            t_n = np.random.randint((t + 5*self.delta), (T - self.window_size), self.mc_sample_size)
-        x_n = torch.stack([x[:, t_ind:t_ind + self.window_size] for t_ind in t_n])
+            t_n = np.random.randint(min((t + self.delta), (T - self.window_size-1)), (T - self.window_size//2), self.mc_sample_size)
+        x_n = torch.stack([x[:, t_ind-self.window_size//2:t_ind+self.window_size//2] for t_ind in t_n])
         return x_n
 
 
-def train(train_loader, disc_model, optimizer, encoder):
-    encoder.train()
-    disc_model.train()
+def epoch_run(loader, disc_model, encoder, device, optimizer=None, train=True):
+    if train:
+        encoder.train()
+        disc_model.train()
+    else:
+        encoder.eval()
+        disc_model.eval()
     loss_fn = torch.nn.BCELoss()
+    encoder.to(device)
+    disc_model.to(device)
     epoch_loss = 0
     epoch_acc = 0
     batch_count = 0
-    for x_t, x_p, x_n, _ in train_loader:
-        # print(x_p.shape, x_n.shape, x_t.shape)
+    for x_t, x_p, x_n, _ in loader:
         mc_sample = x_p.shape[1]
         batch_size, f_size, len_size = x_t.shape
         x_p = x_p.reshape((-1, f_size, len_size))
         x_n = x_n.reshape((-1, f_size, len_size))
         x_t = np.repeat(x_t, mc_sample, axis=0)
-        # print(x_p.shape, x_n.shape, x_t.shape)
-        neighbors = torch.ones((len(x_p)))
-        non_neighbors = torch.zeros((len(x_n)))
+        neighbors = torch.ones((len(x_p))).to(device)
+        non_neighbors = torch.zeros((len(x_n))).to(device)
+        x_t, x_p, x_n = x_t.to(device), x_p.to(device), x_n.to(device)
 
-        optimizer.zero_grad()
         z_t = encoder(x_t)
         z_p = encoder(x_p)
         z_n = encoder(x_n)
-        p_loss = loss_fn(disc_model(z_t, z_p), neighbors)
-        n_loss = loss_fn(disc_model(z_t, z_n), non_neighbors)
-        loss = (p_loss + n_loss) / 2
-        loss.backward()
-        optimizer.step()
-        p_acc = torch.sum(disc_model(z_t, z_p) > 0.5).item() / len(z_p)
-        n_acc = torch.sum(disc_model(z_t, z_n) < 0.5).item() / len(z_n)
+
+        d_p = disc_model(z_t, z_p)
+        d_n = disc_model(z_t, z_n)
+        # d = torch.cat((d_p, d_n), 0)
+        # d_label = torch.cat((neighbors, non_neighbors), 0)
+        # shuffled_inds = torch.randperm(len(d))
+        # d_label = d_label[shuffled_inds]
+        # d = d[shuffled_inds]
+        # loss = loss_fn(d, d_label)
+
+        # ratio = torch.sum(disc_model(z_t, z_p), -1) / (torch.sum(disc_model(z_t, z_n), -1)+torch.sum(disc_model(z_t, z_p), -1))
+        # loss = -1*torch.mean(torch.log(ratio))
+        p_loss = loss_fn(d_p, neighbors)
+        n_loss = loss_fn(d_n, non_neighbors)
+        loss = (p_loss + 0.7*n_loss)/1.7
+
+        if train:
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        p_acc = torch.sum(d_p > 0.5).item() / len(z_p)
+        n_acc = torch.sum(d_n < 0.5).item() / len(z_n)
         epoch_acc = epoch_acc + (p_acc+n_acc)/2
         epoch_loss += loss.item()
         batch_count += 1
     return epoch_loss/batch_count, epoch_acc/batch_count
 
 
-def test(test_loader, disc_model, encoder):
-    encoder.eval()
-    disc_model.eval()
-    loss_fn = torch.nn.BCELoss()
-    epoch_loss = 0
-    epoch_acc = 0
-    batch_count = 0
-    for x_t, x_p, x_n, _ in test_loader:
-        mc_sample = x_p.shape[1]
-        batch_size, f_size, len_size = x_t.shape
-        x_p = x_p.reshape((-1, f_size, len_size))
-        x_n = x_n.reshape((-1, f_size, len_size))
-        x_t = np.repeat(x_t, mc_sample, axis=0)
-        neighbors = torch.ones((len(x_p)))
-        non_neighbors = torch.zeros((len(x_n)))
-        z_t = encoder(x_t)
-        z_p = encoder(x_p)
-        z_n = encoder(x_n)
-        p_loss = loss_fn(disc_model(z_t, z_p), neighbors)
-        n_loss = loss_fn(disc_model(z_t, z_n), non_neighbors)
-        loss = (p_loss + n_loss) / 2
-        p_acc = torch.sum(disc_model(z_t, z_p) > 0.5).item() / len(z_p)
-        n_acc = torch.sum(disc_model(z_t, z_n) < 0.5).item() / len(z_n)
-        epoch_acc = epoch_acc + (p_acc + n_acc) / 2
-        epoch_loss += loss.item()
-        batch_count += 1
-    return epoch_loss/batch_count, epoch_acc/batch_count
+def learn_encoder(x, encoder, window_size, lr=0.001, decay=0.005, epsilon=20, delta=150, mc_sample_size=20,
+                  n_epochs=100, path='simulation', device='cpu', augmentation=1):
+    disc_model = Discriminator(encoder.encoding_size, device)
+    n_train = int(len(x)*0.8)
+    inds = list(range(len(x)))
+    random.shuffle(inds)
+    x = x[inds]
 
-
-def plot_distribution():
-    encoder.load_state_dict(torch.load('./ckpt/tcl_encoder.pt'))
-    with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
-        x_test = pickle.load(f)
-    with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
-        y_test = pickle.load(f)
-    n_test = len(x_test)
-    inds = np.random.randint(0, x_test.shape[-1] - 50, n_test * 4)
-    windows = np.array([x_test[int(i % n_test), :, ind:ind + 50] for i, ind in enumerate(inds)])
-    windows_state = [np.round(np.mean(y_test[i % n_test, ind:ind + window_size], axis=-1)) for i, ind in
-                     enumerate(inds)]
-    encodings = encoder(torch.Tensor(windows))
-
-    embedding = TSNE(n_components=2).fit_transform(encodings.detach().cpu().numpy())
-    # embedding = PCA(n_components=2).fit_transform(encodings.detach().cpu().numpy())
-    # original_embedding = PCA(n_components=2).fit_transform(windows.reshape((len(windows), -1)))
-    original_embedding = TSNE(n_components=2).fit_transform(windows.reshape((len(windows), -1)))
-
-    df_original = pd.DataFrame({"f1": original_embedding[:, 0], "f2": original_embedding[:, 1], "state": windows_state})
-    df_encoding = pd.DataFrame({"f1": embedding[:, 0], "f2": embedding[:, 1], "state": windows_state})
-    # df_encoding = pd.DataFrame({"f1": embedding[:, 0], "f2": embedding[:, 1], "state": y_test[np.arange(4*n_test)%n_test, inds]})
-
-    # Save plots
-    plt.figure()
-    plt.title("Origianl signals TSNE")
-    sns.scatterplot(x="f1", y="f2", data=df_original, hue="state")
-    plt.savefig(os.path.join("./plots", "signal_distribution.pdf"))
-
-    plt.figure()
-    plt.title("Signal Encoding TSNE")
-    sns.scatterplot(x="f1", y="f2", data=df_encoding, hue="state")
-    plt.savefig(os.path.join("./plots", "encoding_distribution.pdf"))
-
-
-
-np.random.seed(1234)
-
-window_size = 50
-
-
-
-disc_model = Discriminator(10, 'cpu')
-encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10)
-
-if not os.path.exists("./plots"):
-    os.mkdir("./plots")
-if not os.path.exists("./ckpt/"):
-    os.mkdir("./ckpt/")
-
-
-is_train=False
-
-if is_train:
-    path = './data/simulated_data/'
-    with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
-        x = pickle.load(f)
-    with open(os.path.join(path, 'state_train.pkl'), 'rb') as f:
-        y = pickle.load(f)
-    n_train = int(0.8 * len(x))
-
-    # f, axes = plt.subplots(3, 1)
-    # f.set_figheight(3)
-    # f.set_figwidth(10)
-    # for i, ax in enumerate(axes):
-    #     ax.plot(x[0, i, :])
-    #     for t in range(x.shape[-1] - 1):
-    #         ax.axvspan(t, t + 1, color=['red', 'green', 'blue', 'yellow'][y[0, t]], alpha=0.05)
-    # plt.savefig(os.path.join("./plots", "example_TS.pdf"))
-
-    trainset = TCLDataset(x=torch.Tensor(x[:n_train]), mc_sample_size=20, neighbouring_delta=10,
-                          window_size=window_size)
-    train_loader = data.DataLoader(trainset, batch_size=10, shuffle=True, sampler=None, batch_sampler=None,
-                                   num_workers=0,
-                                   collate_fn=None, pin_memory=False, drop_last=False)
-    validset = TCLDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=20, neighbouring_delta=10,
-                          window_size=window_size)
-    valid_loader = data.DataLoader(validset, batch_size=10, shuffle=True, sampler=None, batch_sampler=None,
-                                   num_workers=0,
-                                   collate_fn=None, pin_memory=False, drop_last=False)
-
-
-    params = list(disc_model.parameters())+list(encoder.parameters())
-    optimizer = torch.optim.Adam(params, lr=0.01)
+    params = list(disc_model.parameters()) + list(encoder.parameters())
+    optimizer = torch.optim.Adam(params, lr=lr, weight_decay=decay)
     performance = []
-    n_epochs = 250
+    best_acc = 0
+    # inds = list(range(n_train))
+    trainset = TCLDataset(x=torch.Tensor(x[:n_train]), mc_sample_size=mc_sample_size, epsilon=epsilon, delta=delta,
+                          window_size=window_size, augmentation=augmentation)
+    print('Train: ', len(trainset))
+    train_loader = data.DataLoader(trainset, batch_size=5, shuffle=True, num_workers=3)
+    validset = TCLDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=mc_sample_size,
+                          epsilon=epsilon, delta=delta, window_size=window_size, augmentation=augmentation)
+    print('Validation: ', len(validset))
+    valid_loader = data.DataLoader(validset, batch_size=5, shuffle=True)
     for epoch in range(n_epochs):
-        epoch_loss, epoch_acc = train(train_loader, disc_model, optimizer, encoder)
-        test_loss, test_acc = test(valid_loader, disc_model, encoder)
+
+        epoch_loss, epoch_acc = epoch_run(train_loader, disc_model, encoder, optimizer=optimizer, train=True, device=device)
+        test_loss, test_acc = epoch_run(valid_loader, disc_model, encoder, train=False,  device=device)
         performance.append((epoch_loss, test_loss, epoch_acc, test_acc))
         print('Epoch %d Loss =====> Training Loss: %.5f \t Training Accuracy: %.5f \t Test Loss: %.5f \t Test Accuracy: %.5f'
-              %(epoch, epoch_loss, epoch_acc, test_loss, test_acc))
+              % (epoch, epoch_loss, epoch_acc, test_loss, test_acc))
+        if test_acc>best_acc:
+            print('Saving a new best')
+            best_acc = test_acc
+            state = {
+                'epoch': epoch,
+                'encoder_state_dict': encoder.state_dict(),
+                'discriminator_state_dict': disc_model.state_dict(),
+                'best_accuracy': best_acc
+            }
+            torch.save(state, './ckpt/%s/checkpoint.pth.tar'%path)
 
     # Save checkpoints
-    torch.save(encoder.state_dict(), './ckpt/tcl_encoder.pt')
-    torch.save(disc_model.state_dict(), './ckpt/discriminator.pt')
+    if not os.path.exists('./ckpt/%s'%path):
+        os.mkdir('./ckpt/%s'%path)
+    torch.save(encoder.state_dict(), './ckpt/%s/tcl_encoder.pt'%path)
+    torch.save(disc_model.state_dict(), './ckpt/%s/discriminator.pt'%path)
 
     # Save performance plots
+    if not os.path.exists('./plots/%s'%path):
+        os.mkdir('./plots/%s'%path)
     train_loss = [t[0] for t in performance]
     test_loss = [t[1] for t in performance]
     train_acc = [t[2] for t in performance]
@@ -244,21 +218,72 @@ if is_train:
     plt.plot(np.arange(n_epochs), test_loss, label="Test")
     plt.title("Loss")
     plt.legend()
-    plt.savefig(os.path.join("./plots", "loss.pdf"))
+    plt.savefig(os.path.join("./plots/%s"%path, "loss.pdf"))
     plt.figure()
     plt.plot(np.arange(n_epochs), train_acc, label="Train")
     plt.plot(np.arange(n_epochs), test_acc, label="Test")
     plt.title("Accuracy")
     plt.legend()
-    plt.savefig(os.path.join("./plots", "accuracy.pdf"))
-    plot_distribution()
+    plt.savefig(os.path.join("./plots/%s"%path, "accuracy.pdf"))
 
-else:
-    # plot_distribution()
-    exp = ClassificationPerformanceExperiment()
-    exp.run()
+    return encoder
 
 
+def main(is_train, data_type):
+    if not os.path.exists("./plots"):
+        os.mkdir("./plots")
+    if not os.path.exists("./ckpt/"):
+        os.mkdir("./ckpt/")
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+    if is_train and data_type=='simulation':
+        window_size = 50
+        encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device)
+        path = './data/simulated_data/'
+        with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+            x = pickle.load(f)
+        learn_encoder(torch.Tensor(x), encoder, lr=1e-3, decay=1e-5, window_size=window_size, epsilon=50,
+                      delta=300, n_epochs=50, mc_sample_size=20, path='simulation', device=device, augmentation=5)
+
+        with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+            x_test = pickle.load(f)
+        with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
+            y_test = pickle.load(f)
+        plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation', device=device)
+        exp = ClassificationPerformanceExperiment()
+        exp.run(data='simulation', n_epochs=70, lr_e2e=0.01, lr_cls=0.01)
+
+    if is_train and data_type == 'mimic':
+        p_data = PatientData()
+        n_patient, n_features, length = p_data.train_data.shape
+        encoder = MimicEncoder(input_size=2, in_channel=n_features, encoding_size=10)
+        learn_encoder(p_data.train_data, encoder, window_size=2, delta=5, epsilon=2,
+                      path='mimic', mc_sample_size=5)
+
+    if is_train and data_type == 'wf':
+        window_size = 2500
+        path = './data/waveform_data/processed'
+        with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+            x = pickle.load(f)
+        with open(os.path.join(path, 'state_train.pkl'), 'rb') as f:
+            y = pickle.load(f)
+
+        encoder = WFEncoder(encoding_size=64).to(device)
+        learn_encoder(torch.Tensor(x), encoder, lr=1e-5, decay=0.005, n_epochs=50, window_size=window_size, delta=400000,
+                      epsilon=5000, path='waveform', mc_sample_size=20, device=device, augmentation=50)
+        with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+            x_test = pickle.load(f)
+        with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
+            y_test = pickle.load(f)
+        plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device)    # if is_train:
+        model_distribution(x, y, x_test, y_test, encoder, window_size, 'waveform', device)
+        # exp = WFClassificationExperiment(window_size=window_size)
+        # exp.run(data='waveform', n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
+
+
+if __name__=='__main__':
+    np.random.seed(1234)
+    is_train = True
+    main(is_train, data_type='wf')
 
 
