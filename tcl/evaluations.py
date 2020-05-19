@@ -14,12 +14,12 @@ from sklearn.metrics import confusion_matrix
 
 
 class ClassificationPerformanceExperiment():
-    def __init__(self, n_states=4, encoding_size=10):
+    def __init__(self, n_states=4, encoding_size=10, path='simulation'):
         # Load or train a TCL encoder
-        if not os.path.exists("./ckpt/simulation/checkpoint.pth.tar"):
+        if not os.path.exists("./ckpt/%s/checkpoint.pth.tar"%path):
             raise ValueError("No checkpoint for an encoder")
-        checkpoint = torch.load('./ckpt/simulation/checkpoint.pth.tar')
-        print('Loading encoder with discrimination performance accuracy of %.3f '%checkpoint['best_accuracy'])
+        checkpoint = torch.load('./ckpt/%s/checkpoint.pth.tar'%path)
+        # print('Loading encoder with discrimination performance accuracy of %.3f '%checkpoint['best_accuracy'])
         self.tcl_encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=encoding_size)
         self.tcl_encoder.load_state_dict(checkpoint['encoder_state_dict'])
         # self.tcl_encoder.load_state_dict(torch.load('./ckpt/tcl_encoder.pt'))
@@ -259,6 +259,7 @@ class WFClassificationExperiment(ClassificationPerformanceExperiment):
 
 
 
+
 # class MimicExperiment():
 #     def __init__(self,n):
 #         self.train_loader, self.valid_loader, self.test_loader = create_mimic_dataset
@@ -321,5 +322,6 @@ class WFClassificationExperiment(ClassificationPerformanceExperiment):
 #         plt.plot(test_loss_trend, label='Validation loss')
 #         plt.legend()
 #         plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
+
 
 

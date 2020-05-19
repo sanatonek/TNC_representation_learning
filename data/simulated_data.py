@@ -7,11 +7,11 @@ import pickle
 
 n_signals = 5
 n_states = 4
-transition_matrix = np.eye(n_states)*0.8
-transition_matrix[0,1] = transition_matrix[1,0] = 0.1
+transition_matrix = np.eye(n_states)*0.85
+transition_matrix[0,1] = transition_matrix[1,0] = 0.05
 transition_matrix[0,2] = transition_matrix[2,0] = 0.05
 transition_matrix[0,3] = transition_matrix[3,0] = 0.05
-transition_matrix[2,3] = transition_matrix[3,2] = 0.1
+transition_matrix[2,3] = transition_matrix[3,2] = 0.05
 transition_matrix[2,1] = transition_matrix[1,2] = 0.05
 transition_matrix[3,1] = transition_matrix[1,3] = 0.05
 
@@ -43,15 +43,15 @@ def main(n_samples, sig_len):
     # plt.show()
 
     # Save signals to file
-    if not os.path.exists('./simulated_data'):
-        os.mkdir('./simulated_data')
-    with open('./simulated_data/x_train.pkl', 'wb') as f:
+    if not os.path.exists('./data/simulated_data'):
+        os.mkdir('./data/simulated_data')
+    with open('./data/simulated_data/x_train.pkl', 'wb') as f:
         pickle.dump(train_data_n, f)
-    with open('./simulated_data/x_test.pkl', 'wb') as f:
+    with open('./data/simulated_data/x_test.pkl', 'wb') as f:
         pickle.dump(test_data_n, f)
-    with open('./simulated_data/state_train.pkl', 'wb') as f:
+    with open('./data/simulated_data/state_train.pkl', 'wb') as f:
         pickle.dump(train_state, f)
-    with open('./simulated_data/state_test.pkl', 'wb') as f:
+    with open('./data/simulated_data/state_test.pkl', 'wb') as f:
         pickle.dump(test_state, f)
 
 

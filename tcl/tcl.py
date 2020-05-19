@@ -1,19 +1,14 @@
 import torch
 from torch.utils import data
-from torch.autograd import Variable
-from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.decomposition import PCA
+import pandas as pd
 
 import numpy as np
 import pickle
 import os
-import pandas as pd
 import random
 
-from tcl.models import RnnEncoder, MimicEncoder, WFEncoder, WaveNetModel
-from tcl.evaluations import ClassificationPerformanceExperiment, WFClassificationExperiment
+from tcl.models import RnnEncoder, MimicEncoder, WFEncoder
 from tcl.utils import PatientData, plot_distribution, model_distribution
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -59,28 +54,28 @@ class TCLDataset(data.Dataset):
         self.epsilon = epsilon
         self.delta = delta
         self.window_size = window_size
-        self.sliding_gap = window_size*2
-        self.window_per_sample = (self.T-self.window_size)//self.sliding_gap
+        self.sliding_gap = int(window_size*25.2)
+        self.window_per_sample = (self.T-2*self.window_size)//self.sliding_gap
         self.mc_sample_size = mc_sample_size
         self.state = state
         self.augmentation = augmentation
 
     def __len__(self):
-        # return len(self.time_series)*self.augmentation
-        return len(self.time_series) * self.window_per_sample
+        return len(self.time_series)*self.augmentation
+        # return len(self.time_series) * self.window_per_sample
 
     def __getitem__(self, ind):
-        # ind = ind%len(self.time_series)
-        # t = np.random.randint(self.window_size+2*self.epsilon, self.T-self.window_size-2*self.epsilon)
-        # x_t = self.time_series[ind][:,t-self.window_size//2:t+self.window_size//2]  # TODO: add padding for windows that are smaller
-        # X_close = self._find_neighours(self.time_series[ind], t)
-        # X_distant = self._find_non_neighours(self.time_series[ind], t)
+        ind = ind%len(self.time_series)
+        t = np.random.randint(self.window_size+2*self.epsilon, self.T-self.window_size-2*self.epsilon)
+        x_t = self.time_series[ind][:,t-self.window_size//2:t+self.window_size//2]  # TODO: add padding for windows that are smaller
+        X_close = self._find_neighours(self.time_series[ind], t)
+        X_distant = self._find_non_neighours(self.time_series[ind], t)
 
-        i = ind//self.window_per_sample
-        t = ind%self.window_per_sample + self.window_size//2
-        x_t = self.time_series[i][:, t - self.window_size // 2:t + self.window_size // 2]
-        X_close = self._find_neighours(self.time_series[i], t)
-        X_distant = self._find_non_neighours(self.time_series[i], t)
+        # i = ind//self.window_per_sample
+        # t = ind%self.window_per_sample + self.window_size//2 + np.random.randint(0,self.window_size//2)
+        # x_t = self.time_series[i][:, t - self.window_size // 2:t + self.window_size // 2]
+        # X_close = self._find_neighours(self.time_series[i], t)
+        # X_distant = self._find_non_neighours(self.time_series[i], t)
 
         if self.state is None:
             y_t = -1
@@ -90,8 +85,26 @@ class TCLDataset(data.Dataset):
 
     def _find_neighours(self, x, t):
         T = self.time_series.shape[-1]
+        ## Autocorrelation
+        # s = pd.Series(x[1,t-self.window_size//2:])
+        # m = np.mean(x[1,t-self.window_size//2:t+self.window_size//2])
+        # c = np.std(x[1,t-self.window_size//2:t+self.window_size//2])
+        # corr = []
+        # mean, cov = [], []
+        # for i in range(0,30,5):
+        #     mean.append(np.abs(np.mean(x[1,t+i-self.window_size//2:t+i+self.window_size//2])-m))
+        #     cov.append(np.abs(np.std(x[1,t+i-self.window_size//2:t+i+self.window_size//2])-c))
+        #     # corr.append(np.abs(s.autocorr(i)))
+        # f, axs = plt.subplots(2)
+        # axs[0].plot(mean)
+        # axs[1].plot(cov)
+        # plt.show()
+
+        ## Random within a distance
         # t_p = np.random.randint(max(0, t - self.epsilon - self.window_size), min(t + self.window_size + self.epsilon, T - self.window_size), self.mc_sample_size)
         # t_p = np.random.randint(max(0, t - self.epsilon), min(t + self.window_size + self.epsilon, T - self.window_size), self.mc_sample_size)
+
+        ## Random from a Gaussian
         t_p = [int(t+np.random.randn()*self.epsilon) for _ in range(self.mc_sample_size)]
         t_p = [max(self.window_size//2+1,min(t_pp,T-self.window_size//2)) for t_pp in t_p]
         x_p = torch.stack([x[:, t_ind-self.window_size//2:t_ind+self.window_size//2] for t_ind in t_p])
@@ -158,6 +171,8 @@ def epoch_run(loader, disc_model, encoder, device, optimizer=None, train=True):
         epoch_acc = epoch_acc + (p_acc+n_acc)/2
         epoch_loss += loss.item()
         batch_count += 1
+        # if batch_count%100==0:
+        #     print('\t Batch %d performance: '%(batch_count), '\t Accuracy: ', (epoch_acc/batch_count))
     return epoch_loss/batch_count, epoch_acc/batch_count
 
 
@@ -243,15 +258,16 @@ def main(is_train, data_type):
         with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
             x = pickle.load(f)
         learn_encoder(torch.Tensor(x), encoder, lr=1e-3, decay=1e-5, window_size=window_size, epsilon=50,
-                      delta=300, n_epochs=50, mc_sample_size=20, path='simulation', device=device, augmentation=5)
+                      delta=300, n_epochs=100, mc_sample_size=20, path='simulation', device=device, augmentation=5)
 
         with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
             x_test = pickle.load(f)
         with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
             y_test = pickle.load(f)
         plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation', device=device)
-        exp = ClassificationPerformanceExperiment()
-        exp.run(data='simulation', n_epochs=70, lr_e2e=0.01, lr_cls=0.01)
+        # exp = ClassificationPerformanceExperiment()
+        # exp.run(data='simulation', n_epochs=70, lr_e2e=0.01, lr_cls=0.001)
+        # track_encoding(sample=x_test[10], label=y_test[10], encoder=encoder, window_size=window_size, path='simulation')
 
     if is_train and data_type == 'mimic':
         p_data = PatientData()
@@ -268,15 +284,18 @@ def main(is_train, data_type):
         with open(os.path.join(path, 'state_train.pkl'), 'rb') as f:
             y = pickle.load(f)
 
+        # encoder = CausalCNNEncoder(in_channels=2, channels=30, depth=10, reduced_size=80,
+        #          out_channels=64, kernel_size=3)
         encoder = WFEncoder(encoding_size=64).to(device)
-        learn_encoder(torch.Tensor(x), encoder, lr=1e-5, decay=0.005, n_epochs=50, window_size=window_size, delta=400000,
-                      epsilon=5000, path='waveform', mc_sample_size=20, device=device, augmentation=50)
+        learn_encoder(torch.Tensor(x), encoder, lr=1e-5, decay=0.1, n_epochs=50, window_size=window_size, delta=400000,
+                      epsilon=5000, path='waveform', mc_sample_size=25, device=device, augmentation=50)
         with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
             x_test = pickle.load(f)
         with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
             y_test = pickle.load(f)
-        plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device)    # if is_train:
+        plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device, augment=100)    # if is_train:
         model_distribution(x, y, x_test, y_test, encoder, window_size, 'waveform', device)
+
         # exp = WFClassificationExperiment(window_size=window_size)
         # exp.run(data='waveform', n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
 
@@ -284,6 +303,6 @@ def main(is_train, data_type):
 if __name__=='__main__':
     np.random.seed(1234)
     is_train = True
-    main(is_train, data_type='wf')
+    main(is_train, data_type='simulation')
 
 
