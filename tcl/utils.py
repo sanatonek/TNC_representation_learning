@@ -12,6 +12,8 @@ import torch
 from sklearn.manifold import TSNE
 from sklearn.mixture import BayesianGaussianMixture as DPGMM
 from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score, accuracy_score
+from sklearn.neighbors import KNeighborsClassifier
 
 
 class PatientData():
@@ -96,17 +98,26 @@ def create_simulated_dataset(window_size=50, path='./data/simulated_data/', batc
     return train_loader, valid_loader, test_loader
 
 
-def track_encoding(sample, label, encoder, window_size, path):
+def track_encoding(sample, label, encoder, window_size, path, sliding_gap=20):
     T = sample.shape[-1]
-
+    print('*************', T)
     windows_label = []
     encodings = []
-    encoder.to(encoder.device)
-    for t in range(0,100,10):
-        windows = sample[:, :t+window_size]
-        windows_label.append(int(np.mean(label[:t+window_size],-1)))
-        encodings.append(encoder(torch.Tensor(windows).unsqueeze(0).to(encoder.device)))
+    device = 'cuda'
+    encoder.to(device)
+    encoder.eval()
+    for t in range(0,T-2*window_size,sliding_gap):
+        windows = sample[:, t:t+window_size]
+        windows_label.append((np.bincount(label[:t+window_size].astype(int)).argmax()))
+        encodings.append(encoder(torch.Tensor(windows).unsqueeze(0).to(device))[0])
     encodings = torch.stack(encodings, 0)
+
+    print(windows_label)
+    print(encodings.shape)
+
+
+    sns.heatmap(encodings.detach().cpu().numpy().T, linewidth=0.5)
+    plt.savefig(os.path.join("./plots/%s" % path, "embedding_trajectory_hm.pdf"))
 
     # windows = np.split(sample[:, :window_size * (T // window_size)], (T // window_size), -1)
     # windows = torch.Tensor(np.stack(windows, 0)).to(encoder.device)
@@ -117,18 +128,18 @@ def track_encoding(sample, label, encoder, window_size, path):
 
     pca = PCA(n_components=2)
     embedding = pca.fit_transform(encodings.detach().cpu().numpy())
-    d = {'f1':embedding[:,0], 'f2':embedding[:,1], 'time':np.arange(len(embedding)), 'label':windows_label}
+    d = {'f1':embedding[:,0], 'f2':embedding[:,1], 'time':np.arange(len(embedding))}#, 'label':windows_label}
     df = pd.DataFrame(data=d)
     # print(df)
     fig, ax = plt.subplots()
     ax.set_title("Trajectory")
     # sns.jointplot(x="f1", y="f2", data=df, kind="kde", size='time', hue='label')
-    sns.scatterplot(x="f1", y="f2", data=df, hue="time", size='label')
+    sns.scatterplot(x="f1", y="f2", data=df, hue="time")
     plt.savefig(os.path.join("./plots/%s" % path, "embedding_trajectory.pdf"))
 
 
-def plot_distribution(x_test, y_test, encoder, window_size, path, device, augment=4):
-    checkpoint = torch.load('./ckpt/%s/checkpoint.pth.tar'%path)
+def plot_distribution(x_test, y_test, encoder, window_size, path, device, title="", augment=4, cv=0):
+    checkpoint = torch.load('./ckpt/%s/checkpoint_%d.pth.tar'%(path, cv))
     encoder.load_state_dict(checkpoint['encoder_state_dict'])
     encoder = encoder.to(device)
     n_test = len(x_test)
@@ -138,6 +149,9 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, augmen
     windows_state = [np.round(np.mean(y_test[i % n_test, ind:ind + window_size], axis=-1)) for i, ind in
                      enumerate(inds)]
     encodings = encoder(torch.Tensor(windows).to(device))
+
+    s_score = silhouette_score(encodings.detach().cpu().numpy(), np.array(windows_state))
+    print('*********************', s_score)
 
     tsne = TSNE(n_components=2)
     embedding = tsne.fit_transform(encodings.detach().cpu().numpy())
@@ -162,11 +176,13 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, augmen
 
     fig, ax = plt.subplots()
     # plt.figure()
-    ax.set_title("Signal Encoding TSNE 2")
+    ax.set_title("Encodings Distribution using %s"%title)
     sns.scatterplot(x="f1", y="f2", data=df_encoding, hue="state")
     # sns.jointplot(x="f1", y="f2", data=df_encoding, kind="kde", hue='state')
 
-    # dpgmm = DPGMM(20)
+    from sklearn.mixture import GaussianMixture
+    # dpgmm = DPGMM(10)
+    # # dpgmm = GaussianMixture(4)
     # dpgmm.fit(embedding)
     # print('Number of components: ', dpgmm.n_components)
     # for i,n in enumerate(range(dpgmm.n_components)):
@@ -174,90 +190,123 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, augmen
     #     sigma = dpgmm.covariances_[i]
     #     confidence_ellipse(mu, sigma, ax)
     #     ax.scatter(mu[0], mu[1], c='navy', s=3)
-    plt.savefig(os.path.join("./plots/%s"%path, "encoding_distribution.pdf"))
+    plt.savefig(os.path.join("./plots/%s"%path, "encoding_distribution_%d.pdf"%cv))
 
 
 def model_distribution(x_train, y_train, x_test, y_test, encoder, window_size, path, device):
     checkpoint = torch.load('./ckpt/%s/checkpoint.pth.tar'%path)
     encoder.load_state_dict(checkpoint['encoder_state_dict'])
     encoder.eval()
-    encoder.to(device)
-    n_train = len(x_train)
+    # n_train = len(x_train)
     n_test = len(x_test)
-    inds = np.random.randint(0, x_train.shape[-1] - window_size, n_train * 1000)
+    augment = 100
 
-    windows = np.array([x_train[int(i % n_train), :, ind:ind + window_size] for i, ind in enumerate(inds)])
-    windows_label = [np.round(np.mean(y_train[i % n_train, ind:ind + window_size], axis=-1))
-                     for i, ind in enumerate(inds)]
+    # inds = np.random.randint(0, x_train.shape[-1] - window_size, n_train * 20)
+
+    # windows = np.array([x_train[int(i % n_train), :, ind:ind + window_size] for i, ind in enumerate(inds)])
+    # windows_label = [np.round(np.mean(y_train[i % n_train, ind:ind + window_size], axis=-1))
+    #                  for i, ind in enumerate(inds)]
+    inds = np.random.randint(0, x_test.shape[-1] - window_size, n_test * augment)
+    x_window_test = np.array([x_test[int(i % n_test), :, ind:ind + window_size] for i, ind in enumerate(inds)])
+    y_window_test = np.array([np.round(np.mean(y_test[i % n_test, ind:ind + window_size], axis=-1)) for i, ind in
+                     enumerate(inds)])
+    # T = x_test.shape[-1]
+    # x_window_test = np.split(x_test[:, :, :window_size * (T // window_size)], (T // window_size), -1)
+    # y_window_test = np.split(y_test[:, :window_size * (T // window_size)], (T // window_size), -1)
+    # x_window_test = torch.Tensor(np.concatenate(x_window_test, 0))
+    # y_window_test = np.round(np.mean(np.concatenate(y_window_test, 0), -1))
     train_count = []
-    for i in range(4):
-        train_count.append(windows_label.count(i)/len(windows_label))
-    print('Class distribution in train set: ', train_count)
+    if 'waveform' in path:
+        encoder.to('cpu')
+        x_window_test = torch.Tensor(x_window_test)
+    else:
+        encoder.to(device)
+        x_window_test = torch.Tensor(x_window_test).to(device)
 
-    trainset = data.TensorDataset(torch.Tensor(windows), torch.Tensor(windows_label))
-    train_loader = data.DataLoader(trainset, batch_size=10, shuffle=True, sampler=None, batch_sampler=None,
-                                   num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
-    encodings = []
-    for x,_ in train_loader:
-        x = x.to(device)
-        encodings.append(encoder(x).detach().cpu().numpy())
-    encodings = np.concatenate(encodings, 0)
-    # encodings = encoder(torch.Tensor(windows).to(device))
-    dpgmm = DPGMM(20)
-    dpgmm.fit(encodings)
-    log_lik_train = dpgmm.score(encodings)
-    print('Training Log likelihood: ', log_lik_train)
-    ind_1 = np.argwhere(y_train == 2.)
-    ind_1 = [ind_ii for ii, ind_ii in enumerate(ind_1) if ii%2000==0]
-    rare_samples = [x_train[k[0], :, k[1]:k[1]+window_size] for k in ind_1[0:min(10, len(ind_1))]]
-    sample_1 = encoder(torch.Tensor(rare_samples).to(device))
-    # sample_1 = encoder(torch.Tensor(x_train[ind_1[0], :, ind_1[1]:ind_1[1] + window_size]).unsqueeze(0).to(device))
-    score_1 = dpgmm.score(sample_1.detach().cpu().numpy())
-    print('Log likelihood of rare samples from training set: ', score_1)
+    # trainset = data.TensorDataset(torch.Tensor(windows), torch.Tensor(windows_label))
+    # train_loader = data.DataLoader(trainset, batch_size=10, shuffle=True, sampler=None, batch_sampler=None,
+    #                                num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
+    # encodings = []
+    # for x,_ in train_loader:
+    #     x = x.to(device)
+    #     encodings.append(encoder(x).detach().cpu().numpy())
+    # encodings = np.concatenate(encodings, 0)
 
-    # ind_3 = np.argwhere(y_train == 3.)
-    # ind_3 = [ind_ii for ii, ind_ii in enumerate(ind_3) if ii%20000==0]
-    # common_samples = [x_train[k[0], :, k[1]:k[1] + window_size] for k in ind_3]
-    # # sample_0 = encodings[windows_label.index(3)]
-    # sample_0 = encoder(torch.Tensor(common_samples).to(device))
-    # score_0 = dpgmm.score(sample_0.reshape((1, -1)))
-    # print('Log likelihood of a common sample from the training set: ', score_0)
+    encodings_test = encoder(x_window_test).detach().cpu().numpy()
+
+    neigh = KNeighborsClassifier(n_neighbors=10)
+    neigh.fit(encodings_test, y_window_test)
+    # preds = neigh.predict(encodings_test)
+    _, neigh_inds = neigh.kneighbors(encodings_test)
+    neigh_ind_labels = [np.mean(y_window_test[ind]) for ind in (neigh_inds)]
+    label_var = [(y_window_test[ind]==y_window_test[i]).sum() for i, ind in enumerate(neigh_inds)]
+    dist = (label_var)/10
+    # print(neigh_ind_labels[:10])
+    # print(accuracy_score(y_window_test, preds))
+    # dist = np.linalg.norm(neigh_ind_labels - y_window_test)**2/len(y_window_test)
+    print(dist)
 
 
-    test_windows = np.array([x_test[int(i % n_test), :, ind:ind + window_size] for i, ind in enumerate(inds)])
-    test_windows_label = [np.round(np.mean(y_test[i % n_test, ind:ind + window_size], axis=-1))
-                          for i, ind in enumerate(inds)]
-    test_count = []
-    for i in range(4):
-        test_count.append(test_windows_label.count(i) / len(test_windows_label))
-    print('Class distribution in test set: ', test_count)
 
-    testset = data.TensorDataset(torch.Tensor(test_windows), torch.Tensor(test_windows_label))
-    test_loader = data.DataLoader(testset, batch_size=10, shuffle=True, sampler=None, batch_sampler=None,
-                                   num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
-    test_encodings = []
-    for x, _ in test_loader:
-        x = x.to(device)
-        test_encodings.append(encoder(x).detach().cpu().numpy())
-    test_encodings = np.concatenate(test_encodings, 0)
-    # test_encodings = encoder(torch.Tensor(test_windows).to(device))
-    log_lik_test = dpgmm.score(test_encodings)
-    print('Test Log likelihood: ', log_lik_test)
-    ind_1 = np.argwhere(y_train == 2.)#[0]
-    ind_1 = [ind_ii for ii, ind_ii in enumerate(ind_1) if ii%2000==0]
-    rare_samples = [x_train[k[0], :, k[1]:k[1]+window_size] for k in ind_1]
-    sample_1 = encoder(torch.Tensor(rare_samples).to(device))
-    # ind_1 = np.argwhere(y_test == 1.)[0]
-    # sample_1 = encoder(torch.Tensor(x_test[ind_1[0], :, ind_1[1]:ind_1[1] + window_size]).unsqueeze(0).to(device))
-    score_1 = dpgmm.score(sample_1.detach().cpu().numpy())
-    print('Log likelihood of a rare sample from th test set: ', score_1)
-    # ind_3 = np.argwhere(y_train == 3.)
-    # ind_3 = [ind_ii for ii, ind_ii in enumerate(ind_3) if ii%20000==0]
-    # common_samples = [x_train[k[0], :, k[1]:k[1] + window_size] for k in ind_3]
-    # sample_0 = encoder(torch.Tensor(common_samples).to(device))
-    # # sample_0 = test_encodings[test_windows_label.index(3)]
-    # score_0 = dpgmm.score(sample_0[np.newaxis,:])
-    # print('Log likelihood of a common sample from the test set: ', score_0)
+    # for i in range(4):
+    #     train_count.append(windows_label.count(i)/len(windows_label))
+    # print('Class distribution in train set: ', train_count)
+    # # encodings = encoder(torch.Tensor(windows).to(device))
+    # dpgmm = DPGMM(20)
+    # dpgmm.fit(encodings)
+    # log_lik_train = dpgmm.score(encodings)
+    # print('Training Log likelihood: ', log_lik_train)
+    # ind_1 = np.argwhere(y_train == 2.)
+    # ind_1 = [ind_ii for ii, ind_ii in enumerate(ind_1) if ii%2000==0]
+    # rare_samples = [x_train[k[0], :, k[1]:k[1]+window_size] for k in ind_1[0:min(10, len(ind_1))]]
+    # sample_1 = encoder(torch.Tensor(rare_samples).to(device))
+    # # sample_1 = encoder(torch.Tensor(x_train[ind_1[0], :, ind_1[1]:ind_1[1] + window_size]).unsqueeze(0).to(device))
+    # score_1 = dpgmm.score(sample_1.detach().cpu().numpy())
+    # print('Log likelihood of rare samples from training set: ', score_1)
+    #
+    # # ind_3 = np.argwhere(y_train == 3.)
+    # # ind_3 = [ind_ii for ii, ind_ii in enumerate(ind_3) if ii%20000==0]
+    # # common_samples = [x_train[k[0], :, k[1]:k[1] + window_size] for k in ind_3]
+    # # # sample_0 = encodings[windows_label.index(3)]
+    # # sample_0 = encoder(torch.Tensor(common_samples).to(device))
+    # # score_0 = dpgmm.score(sample_0.reshape((1, -1)))
+    # # print('Log likelihood of a common sample from the training set: ', score_0)
+    #
+    #
+    # test_windows = np.array([x_test[int(i % n_test), :, ind:ind + window_size] for i, ind in enumerate(inds)])
+    # test_windows_label = [np.round(np.mean(y_test[i % n_test, ind:ind + window_size], axis=-1))
+    #                       for i, ind in enumerate(inds)]
+    # test_count = []
+    # for i in range(4):
+    #     test_count.append(test_windows_label.count(i) / len(test_windows_label))
+    # print('Class distribution in test set: ', test_count)
+    #
+    # testset = data.TensorDataset(torch.Tensor(test_windows), torch.Tensor(test_windows_label))
+    # test_loader = data.DataLoader(testset, batch_size=10, shuffle=True, sampler=None, batch_sampler=None,
+    #                                num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
+    # test_encodings = []
+    # for x, _ in test_loader:
+    #     x = x.to(device)
+    #     test_encodings.append(encoder(x).detach().cpu().numpy())
+    # test_encodings = np.concatenate(test_encodings, 0)
+    # # test_encodings = encoder(torch.Tensor(test_windows).to(device))
+    # log_lik_test = dpgmm.score(test_encodings)
+    # print('Test Log likelihood: ', log_lik_test)
+    # ind_1 = np.argwhere(y_train == 2.)#[0]
+    # ind_1 = [ind_ii for ii, ind_ii in enumerate(ind_1) if ii%2000==0]
+    # rare_samples = [x_train[k[0], :, k[1]:k[1]+window_size] for k in ind_1]
+    # sample_1 = encoder(torch.Tensor(rare_samples).to(device))
+    # # ind_1 = np.argwhere(y_test == 1.)[0]
+    # # sample_1 = encoder(torch.Tensor(x_test[ind_1[0], :, ind_1[1]:ind_1[1] + window_size]).unsqueeze(0).to(device))
+    # score_1 = dpgmm.score(sample_1.detach().cpu().numpy())
+    # print('Log likelihood of a rare sample from th test set: ', score_1)
+    # # ind_3 = np.argwhere(y_train == 3.)
+    # # ind_3 = [ind_ii for ii, ind_ii in enumerate(ind_3) if ii%20000==0]
+    # # common_samples = [x_train[k[0], :, k[1]:k[1] + window_size] for k in ind_3]
+    # # sample_0 = encoder(torch.Tensor(common_samples).to(device))
+    # # # sample_0 = test_encodings[test_windows_label.index(3)]
+    # # score_0 = dpgmm.score(sample_0[np.newaxis,:])
+    # # print('Log likelihood of a common sample from the test set: ', score_0)
 
 
 def confidence_ellipse(mean, cov, ax, n_std=1.0, facecolor='none', **kwargs):
@@ -286,3 +335,20 @@ def confidence_ellipse(mean, cov, ax, n_std=1.0, facecolor='none', **kwargs):
 
     ellipse.set_transform(transf + ax.transData)
     return ax.add_patch(ellipse)
+
+
+def trend_decompose(x, filter_size):
+    df = pd.DataFrame(data=x.T)
+    df = df.rolling(filter_size, win_type='triang').sum()
+    s = df.loc[:, 0]
+    # print(s[:10])
+    # corr = []
+    # for i in range(0, 30, 5):
+    #     corr.append(np.abs(s.autocorr(i)))
+    # print(corr)
+    f, axs = plt.subplots(1)
+    print(s[filter_size-1:].shape, x[0,:-filter_size+1].shape)
+    axs.plot(s[filter_size-1:], c='red')
+    axs.plot(x[0,:-filter_size+1], c='blue')
+    plt.show()
+

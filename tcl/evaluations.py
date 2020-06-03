@@ -5,6 +5,7 @@ import seaborn as sns
 import numpy as np
 import pickle
 import pandas as pd
+import random
 
 from tcl.models import RnnEncoder, StateClassifier, E2EStateClassifier, WFEncoder
 from tcl.utils import create_simulated_dataset
@@ -14,11 +15,11 @@ from sklearn.metrics import confusion_matrix
 
 
 class ClassificationPerformanceExperiment():
-    def __init__(self, n_states=4, encoding_size=10, path='simulation'):
+    def __init__(self, n_states=4, encoding_size=10, path='simulation', cv=0):
         # Load or train a TCL encoder
-        if not os.path.exists("./ckpt/%s/checkpoint.pth.tar"%path):
+        if not os.path.exists("./ckpt/%s/checkpoint_%d.pth.tar"%(path,cv)):
             raise ValueError("No checkpoint for an encoder")
-        checkpoint = torch.load('./ckpt/%s/checkpoint.pth.tar'%path)
+        checkpoint = torch.load('./ckpt/%s/checkpoint_%d.pth.tar'%(path, cv))
         # print('Loading encoder with discrimination performance accuracy of %.3f '%checkpoint['best_accuracy'])
         self.tcl_encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=encoding_size)
         self.tcl_encoder.load_state_dict(checkpoint['encoder_state_dict'])
@@ -141,6 +142,7 @@ class ClassificationPerformanceExperiment():
         etoe_acc_test, etoe_loss_test, etoe_auc_test = [], [], []
         for epoch in range(n_epochs):
             loss, acc, auc, _ = self._train_tcl_classifier(lr_cls)
+            print(auc)
             tcl_acc.append(acc)
             tcl_loss.append(loss)
             tcl_auc.append(auc)
@@ -208,14 +210,14 @@ class ClassificationPerformanceExperiment():
 
 
 class WFClassificationExperiment(ClassificationPerformanceExperiment):
-    def __init__(self, n_classes=4, encoding_size=64, window_size=2500):
+    def __init__(self, n_classes=4, encoding_size=64, window_size=2500, data='waveform', cv=0):
         # super(WFClassificationExperiment, self).__init__()
 
         # Load or train a TCL encoder and an end to end model
-        if not os.path.exists("./ckpt/waveform/tcl_encoder.pt"):
+        if not os.path.exists("./ckpt/%s/checkpoint_%d.pth.tar"%(data, cv)):
             raise ValueError("No checkpoint for an encoder")
-        checkpoint = torch.load('./ckpt/waveform/checkpoint.pth.tar')
-        print('Loading encoder with discrimination performance accuracy of %.3f '%checkpoint['best_accuracy'])
+        checkpoint = torch.load('./ckpt/%s/checkpoint_%d.pth.tar'%(data, cv))
+        # print('Loading encoder with discrimination performance accuracy of %.3f '%checkpoint['best_accuracy'])
         self.tcl_encoder = WFEncoder(encoding_size=encoding_size)
         self.tcl_encoder.load_state_dict(checkpoint['encoder_state_dict'])
         # self.tcl_encoder.load_state_dict(torch.load('./ckpt/waveform/tcl_encoder.pt'))
@@ -230,12 +232,20 @@ class WFClassificationExperiment(ClassificationPerformanceExperiment):
             y = pickle.load(f)
         T = x.shape[-1]
         x_window = np.split(x[:, :, :window_size * (T // window_size)],(T//window_size), -1)
-        y_window = np.split(y[:, :window_size * (T // window_size)],(T//window_size), -1)
+
+        y_window = np.concatenate(np.split(y[:, :window_size * (T // window_size)], (T // window_size), -1), 0).astype(int)
+        y_window = torch.Tensor(np.array([np.bincount(yy).argmax() for yy in y_window]))
+        shuffled_inds = list(range(len(y_window)))
+        random.shuffle(shuffled_inds)
+        # y_window = np.split(y[:, :window_size * (T // window_size)],(T//window_size), -1)
         x_window = torch.Tensor(np.concatenate(x_window, 0))
-        y_window = torch.Tensor(np.mean(np.concatenate(y_window, 0), -1))
-        n_train = int(0.8*len(x_window))
+        # y_window = torch.Tensor(np.mean(np.concatenate(y_window, 0), -1))
+        x_window = x_window[shuffled_inds]
+        y_window = y_window[shuffled_inds]
+        n_train = int(0.7*len(x_window))
         trainset = torch.utils.data.TensorDataset(x_window[:n_train], y_window[:n_train])
         validset = torch.utils.data.TensorDataset(x_window[n_train:], y_window[n_train:])
+        print(len(y_window[n_train:]), np.unique(y_window[n_train:]))
 
         self.train_loader = torch.utils.data.DataLoader(trainset, batch_size=100, shuffle=True)
         self.valid_loader = torch.utils.data.DataLoader(validset, batch_size=100, shuffle=True)
