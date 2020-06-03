@@ -6,6 +6,8 @@ from scipy.spatial.distance import squareform
 import os
 import pickle
 
+from baselines.soft_dtw_cuda import SoftDTW
+
 
 #########################################################################################
 ######################## Unsupervised Baseline - KNN with DTW ###########################
@@ -68,28 +70,33 @@ class KnnDtw(object):
         -------
         DTW distance between A and B
         """
-        # Create cost matrix via broadcasting with large int
-        ts_a, ts_b = np.array(ts_a), np.array(ts_b)
-        M, N = len(ts_a), len(ts_b)
-        cost = sys.maxsize * np.ones((M, N))
+        # # Create cost matrix via broadcasting with large int
+        # ts_a, ts_b = np.array(ts_a), np.array(ts_b)
+        # M, N = len(ts_a), len(ts_b)
+        # cost = sys.maxsize * np.ones((M, N))
+        #
+        # # Initialize the first row and column
+        # cost[0, 0] = d(ts_a[0], ts_b[0])
+        # for i in range(1, M):
+        #     cost[i, 0] = cost[i - 1, 0] + d(ts_a[i], ts_b[0])
+        #
+        # for j in range(1, N):
+        #     cost[0, j] = cost[0, j - 1] + d(ts_a[0], ts_b[j])
+        #
+        # # Populate rest of cost matrix within window
+        # for i in range(1, M):
+        #     for j in range(max(1, i - self.max_warping_window),
+        #                     min(N, i + self.max_warping_window)):
+        #         choices = cost[i - 1, j - 1], cost[i, j - 1], cost[i - 1, j]
+        #         cost[i, j] = min(choices) + d(ts_a[i], ts_b[j])
+        #
+        # # Return DTW distance given window
+        # return cost[-1, -1]
+        criterion = SoftDTW(use_cuda=True, gamma=0.1)
+        loss = criterion(ts_a, ts_b).item()
+        print(loss.shape)
+        return loss
 
-        # Initialize the first row and column
-        cost[0, 0] = d(ts_a[0], ts_b[0])
-        for i in range(1, M):
-            cost[i, 0] = cost[i - 1, 0] + d(ts_a[i], ts_b[0])
-
-        for j in range(1, N):
-            cost[0, j] = cost[0, j - 1] + d(ts_a[0], ts_b[j])
-
-        # Populate rest of cost matrix within window
-        for i in range(1, M):
-            for j in range(max(1, i - self.max_warping_window),
-                            min(N, i + self.max_warping_window)):
-                choices = cost[i - 1, j - 1], cost[i, j - 1], cost[i - 1, j]
-                cost[i, j] = min(choices) + d(ts_a[i], ts_b[j])
-
-        # Return DTW distance given window
-        return cost[-1, -1]
 
     def _dist_matrix(self, x, y):
         """Computes the M x N distance matrix between the training
@@ -109,6 +116,7 @@ class KnnDtw(object):
 
         # Compute the distance matrix
         dm_count = 0
+        self._dtw_distance(x, y)
 
         # Compute condensed distance matrix (upper triangle) of pairwise dtw distances
         # when x and y are the same array
@@ -125,6 +133,7 @@ class KnnDtw(object):
 
                     dm_count += 1
                     # p.animate(dm_count)
+
 
             # Convert to squareform
             dm = squareform(dm)
@@ -227,11 +236,12 @@ if __name__=='__main__':
     y_train = np.round(np.mean( np.array([y[i, tt - window_size//2: tt + window_size//2] for i, tt in enumerate(t)]), -1 ))
 
     m_1 = KnnDtw()
-    m_1.fit(x_train[:,0,:], y_train)
-    m_2 = KnnDtw()
-    m_2.fit(x_train[:, 1, :], y_train)
-    m_3 = KnnDtw()
-    m_3.fit(x_train[:, 2, :], y_train)
+    m_1.fit(x_train.transpose(0,2,1), y_train)
+    # m_1.fit(x_train[:,0,:], y_train)
+    # m_2 = KnnDtw()
+    # m_2.fit(x_train[:, 1, :], y_train)
+    # m_3 = KnnDtw()
+    # m_3.fit(x_train[:, 2, :], y_train)
 
     with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
         x_test = pickle.load(f)
@@ -244,9 +254,9 @@ if __name__=='__main__':
     # y_test = np.round(np.mean(y_test[np.arange(len(x_test)), t - window_size // 2: t + window_size // 2], -1))
     y_test = np.round(np.mean( np.array([y_test[i, tt - window_size//2: tt + window_size//2] for i, tt in enumerate(t)]), -1 ))
 
-    label_1, _ = m_1.predict(x_test[:, 0, :])
-    label_2, _ = m_2.predict(x_test[:, 1, :])
-    label_3, _ = m_3.predict(x_test[:, 2, :])
+    label_1, _ = m_1.predict(x_test.transpose(0,2,1))
+    # label_2, _ = m_2.predict(x_test[:, 1, :])
+    # label_3, _ = m_3.predict(x_test[:, 2, :])
     stacked_label = np.stack([label_1, label_2, label_3]).astype(int)
     label = []
     for vote in stacked_label.T:
