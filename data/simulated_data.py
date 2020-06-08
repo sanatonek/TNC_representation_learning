@@ -16,13 +16,6 @@ transition_matrix[2,3] = transition_matrix[3,2] = 0.05
 transition_matrix[2,1] = transition_matrix[1,2] = 0.05
 transition_matrix[3,1] = transition_matrix[1,3] = 0.05
 
-# transition_matrix = np.eye(n_states)*0.7
-# transition_matrix[0,1] = transition_matrix[1,0] = 0.1
-# transition_matrix[0,2] = transition_matrix[2,0] = 0.1
-# transition_matrix[0,3] = transition_matrix[3,0] = 0.1
-# transition_matrix[2,3] = transition_matrix[3,2] = 0.1
-# transition_matrix[2,1] = transition_matrix[1,2] = 0.1
-# transition_matrix[3,1] = transition_matrix[1,3] = 0.1
 
 def main(n_samples, sig_len):
     all_signals = []
@@ -42,6 +35,8 @@ def main(n_samples, sig_len):
     test_state = states[n_train:]
 
     print("Dataset Shape ====> \tTrainset: ", train_data_n.shape, "\tTestset: ", test_data_n.shape)
+
+    ## Plot a sample
     # f, axes = plt.subplots(3,1)
     # f.set_figheight(3)
     # f.set_figwidth(10)
@@ -50,12 +45,13 @@ def main(n_samples, sig_len):
     # for i,ax in enumerate(axes):
     #     ax.plot(train_data_n[0,i,:],  c=color[i])
     #     for t in range(train_data_n[0,i,:].shape[-1]):
-    #         ax.axvspan(t, min(t+1, train_state.shape[-1]-1), facecolor=['y', 'g', 'b', 'r'][train_state[0,t]], alpha=0.3)
+    #         ax.axvspan(t, min(t+1, train_state.shape[-1]-1),
+    #                    facecolor=['y', 'g', 'b', 'r'][train_state[0,t]], alpha=0.3)
     # f.set_figheight(6)
     # f.set_figwidth(12)
     # plt.savefig('./simulation_sample.pdf')
 
-    # Save signals to file
+    ## Save signals to file
     if not os.path.exists('./data/simulated_data'):
         os.mkdir('./data/simulated_data')
     with open('./data/simulated_data/x_train.pkl', 'wb') as f:
@@ -88,11 +84,6 @@ def create_signal(sig_len, window_size=50):
 
         pi = transition_matrix[current_state]
     signals = np.stack([sig_1, sig_2, sig_3])
-    # print(states)
-    # f, axes = plt.subplots(3,1)
-    # for i,ax in enumerate(axes):
-    #     ax.plot(signals[i])
-    # plt.show()
     return signals, states
 
 
@@ -122,21 +113,13 @@ def normalize(train_data, test_data, config='mean_normalized'):
     d = [x.T for x in train_data]
     d = np.stack(d, axis=0)
     if config == 'mean_normalized':
-        # feature_means = np.tile(np.mean(d.reshape(-1, feature_size), axis=0), (sig_len, 1)).T
         feature_means = np.mean(train_data, axis=(0,2))
-        # feature_std = np.tile(np.std(d.reshape(-1, feature_size), axis=0), (sig_len, 1)).T
         feature_std = np.std(train_data, axis=(0, 2))
         np.seterr(divide='ignore', invalid='ignore')
         train_data_n = train_data - feature_means[np.newaxis,:,np.newaxis]/\
                        np.where(feature_std == 0, 1, feature_std)[np.newaxis,:,np.newaxis]
         test_data_n = test_data - feature_means[np.newaxis, :, np.newaxis] / \
                        np.where(feature_std == 0, 1, feature_std)[np.newaxis, :, np.newaxis]
-        # train_data_n = np.array(
-        #     [np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std) for
-        #      x in train_data])
-        # test_data_n = np.array(
-        #     [np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std) for
-        #      x in test_data])
     elif config == 'zero_to_one':
         feature_max = np.tile(np.max(d.reshape(-1, feature_size), axis=0), (sig_len, 1)).T
         feature_min = np.tile(np.min(d.reshape(-1, feature_size), axis=0), (sig_len, 1)).T

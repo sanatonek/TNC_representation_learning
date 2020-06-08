@@ -1,5 +1,5 @@
 """
-    afdb.py
+    Preprocessing module for MIT_BIH waveform database
     -------
     This module provides classes and methods for creating the MIT-BIH Atrial Fibrillation database.
     By: Sebastian D. Goodfellow, Ph.D., 2018
