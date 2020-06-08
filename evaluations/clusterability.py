@@ -5,15 +5,12 @@ from tcl.utils import plot_distribution, track_encoding
 import pickle
 import numpy as np
 from sklearn.metrics import silhouette_score, davies_bouldin_score
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.cluster import KMeans
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-
 ### Clusterability on Waveform
-
 encoder = WFEncoder(encoding_size=64)
 window_size = 2500
 datapath = './data/waveform_data/processed'
@@ -21,13 +18,6 @@ with open(os.path.join(datapath, 'x_test.pkl'), 'rb') as f:
     x_test = pickle.load(f)
 with open(os.path.join(datapath, 'state_test.pkl'), 'rb') as f:
     y_test = pickle.load(f)
-
-plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device, augment=100, cv=0)
-plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device, augment=100, cv=1)
-plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device, augment=100, cv=2)
-plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device, augment=100, cv=3)
-# plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform_trip', device=device, augment=100)
-# track_encoding(x_test[0,:,6000000:9000000], y_test[0,6000000:9000000], encoder, window_size=2500, path='waveform', sliding_gap=2500)
 
 T = x_test.shape[-1]
 x_chopped_test = np.split(x_test[:, :, :window_size * (T // window_size)], (T // window_size), -1)
@@ -63,8 +53,6 @@ for i, path in enumerate(['waveform','waveform_cpc','waveform_trip']):
         encodings = np.concatenate(encodings, 0)
         kmeans = KMeans(n_clusters=4, random_state=1).fit(encodings)
         cluster_labels = kmeans.labels_
-
-
         s_score.append(silhouette_score(encodings, cluster_labels))
         db_score.append(davies_bouldin_score(encodings, cluster_labels))
         del encodings
@@ -73,7 +61,6 @@ for i, path in enumerate(['waveform','waveform_cpc','waveform_trip']):
 
 
 ### Clusterability on Simulation
-
 encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device)
 window_size = 50
 datapath = './data/simulated_data/'
@@ -81,8 +68,6 @@ with open(os.path.join(datapath, 'x_test.pkl'), 'rb') as f:
     x_test = pickle.load(f)
 with open(os.path.join(datapath, 'state_test.pkl'), 'rb') as f:
     y_test = pickle.load(f)
-plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation', device=device, augment=5)
-plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation_trip', device=device, augment=5)
 
 T = x_test.shape[-1]
 x_chopped_test = np.split(x_test[:, :, :window_size * (T // window_size)], (T // window_size), -1)
@@ -121,11 +106,6 @@ for i, path in enumerate(['simulation','simulation_cpc','simulation_trip']):
 
         kmeans = KMeans(n_clusters=4, random_state=1).fit(encodings)
         cluster_labels = kmeans.labels_
-        # knn = KNeighborsClassifier(4)
-        # knn.fit(encodings, y_chopped_test.cpu().numpy())
-        # cluster_labels = knn.predict(encodings)
-
-
         s_score.append(silhouette_score(encodings, cluster_labels))
         db_score.append(davies_bouldin_score(encodings, cluster_labels))
         del encodings
