@@ -1,6 +1,6 @@
 # Unsupervised Representation Learning for TimeSeries with Temporal Neighborhood Coding
 
-## To train the TNC encoder model, simply run:
+### To train the TNC encoder model, simply run:
 ```
 python -m tnc.tnc --data <YOUR DATASET>
 ```
