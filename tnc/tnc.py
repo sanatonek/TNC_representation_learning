@@ -43,9 +43,9 @@ class Discriminator(torch.nn.Module):
         return p.view((-1,))
 
 
-class TCLDataset(data.Dataset):
+class TNCDataset(data.Dataset):
     def __init__(self, x, mc_sample_size, epsilon, delta, window_size, augmentation, state=None):
-        super(TCLDataset, self).__init__()
+        super(TNCDataset, self).__init__()
         self.time_series = x
         self.T = x.shape[-1]
         self.epsilon = epsilon
@@ -165,11 +165,11 @@ def learn_encoder(x, encoder, window_size, lr=0.001, decay=0.005, epsilon=20, de
         best_loss = np.inf
         for epoch in range(n_epochs):
 
-            trainset = TCLDataset(x=torch.Tensor(x[:n_train]), mc_sample_size=mc_sample_size, epsilon=epsilon, delta=delta,
+            trainset = TNCDataset(x=torch.Tensor(x[:n_train]), mc_sample_size=mc_sample_size, epsilon=epsilon, delta=delta,
                                   window_size=window_size, augmentation=augmentation)
             print('Train: ', len(trainset))
             train_loader = data.DataLoader(trainset, batch_size=5, shuffle=True, num_workers=3)
-            validset = TCLDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=mc_sample_size,
+            validset = TNCDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=mc_sample_size,
                                   epsilon=epsilon, delta=delta, window_size=window_size, augmentation=augmentation)
             print('Validation: ', len(validset))
             valid_loader = data.DataLoader(validset, batch_size=5, shuffle=True)
@@ -293,7 +293,7 @@ def main(is_train, data_type):
 
 if __name__=='__main__':
     random.seed(1234)
-    parser = argparse.ArgumentParser(description='Run CPC')
+    parser = argparse.ArgumentParser(description='Run TNC')
     parser.add_argument('--data', type=str, default='simulation')
     args = parser.parse_args()
     main(True, args.data)

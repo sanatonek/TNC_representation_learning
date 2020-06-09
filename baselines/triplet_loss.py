@@ -272,7 +272,7 @@ def main(data):
 
 if __name__=="__main__":
     random.seed(1234)
-    parser = argparse.ArgumentParser(description='Run CPC')
+    parser = argparse.ArgumentParser(description='Run Triplet Loss')
     parser.add_argument('--data', type=str, default='simulation')
     args = parser.parse_args()
     main(args.data)
