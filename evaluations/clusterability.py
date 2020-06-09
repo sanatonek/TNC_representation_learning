@@ -1,7 +1,6 @@
 import torch
 import os
-from tcl.models import WFEncoder, RnnEncoder
-from tcl.utils import plot_distribution, track_encoding
+from tnc.models import WFEncoder, RnnEncoder
 import pickle
 import numpy as np
 from sklearn.metrics import silhouette_score, davies_bouldin_score

@@ -7,8 +7,8 @@ import pickle
 import pandas as pd
 import random
 
-from tcl.models import RnnEncoder, StateClassifier, E2EStateClassifier, WFEncoder
-from tcl.utils import create_simulated_dataset
+from tnc.models import RnnEncoder, StateClassifier, E2EStateClassifier, WFEncoder
+from tnc.utils import create_simulated_dataset
 
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import confusion_matrix
@@ -211,8 +211,6 @@ class ClassificationPerformanceExperiment():
 
 class WFClassificationExperiment(ClassificationPerformanceExperiment):
     def __init__(self, n_classes=4, encoding_size=64, window_size=2500, data='waveform', cv=0):
-        # super(WFClassificationExperiment, self).__init__()
-
         # Load or train a TCL encoder and an end to end model
         if not os.path.exists("./ckpt/%s/checkpoint_%d.pth.tar"%(data, cv)):
             raise ValueError("No checkpoint for an encoder")
@@ -245,93 +243,7 @@ class WFClassificationExperiment(ClassificationPerformanceExperiment):
         n_train = int(0.7*len(x_window))
         trainset = torch.utils.data.TensorDataset(x_window[:n_train], y_window[:n_train])
         validset = torch.utils.data.TensorDataset(x_window[n_train:], y_window[n_train:])
-        print(len(y_window[n_train:]), np.unique(y_window[n_train:]))
 
         self.train_loader = torch.utils.data.DataLoader(trainset, batch_size=100, shuffle=True)
         self.valid_loader = torch.utils.data.DataLoader(validset, batch_size=100, shuffle=True)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# class MimicExperiment():
-#     def __init__(self,n):
-#         self.train_loader, self.valid_loader, self.test_loader = create_mimic_dataset
-#
-#     def _train(self, train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss()):
-#         model = model.to(device)
-#         model.train()
-#         auc_train = 0
-#         recall_train, precision_train, auc_train, correct_label, epoch_loss = 0, 0, 0, 0, 0
-#         for i, (signals, labels) in enumerate(train_loader):
-#             optimizer.zero_grad()
-#             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-#             labels = labels.view(labels.shape[0], )
-#             labels = labels.view(labels.shape[0], )
-#             risks = model(signals)
-#             predicted_label = (risks > 0.5).view(len(labels), ).float()
-#             auc, recall, precision, correct = evaluate(labels, predicted_label, risks)
-#             correct_label += correct
-#             auc_train = auc_train + auc
-#             recall_train = + recall
-#             precision_train = + precision
-#
-#             loss = loss_criterion(risks.view(len(labels), ), labels)
-#             epoch_loss = + loss.item()
-#             loss.backward()
-#             optimizer.step()
-#         return recall_train, precision_train, auc_train / (i + 1), correct_label, epoch_loss, i + 1
-#
-#     def _train_model(self, model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='mimic'):
-#         train_loss_trend = []
-#         test_loss_trend = []
-#
-#         for epoch in range(n_epochs + 1):
-#             recall_train, precision_train, auc_train, correct_label_train, epoch_loss, n_batches = train(train_loader,
-#                                                                                                          model,
-#                                                                                                          device,
-#                                                                                                          optimizer)
-#             recall_test, precision_test, auc_test, correct_label_test, test_loss = test(valid_loader, model,
-#                                                                                         device)
-#             train_loss_trend.append(epoch_loss)
-#             test_loss_trend.append(test_loss)
-#             if epoch % 10 == 0:
-#                 print('\nEpoch %d' % (epoch))
-#                 print('Training ===>loss: ', epoch_loss,
-#                       ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset))),
-#                       ' AUC: %.2f' % (auc_train))
-#                 print('Test ===>loss: ', test_loss,
-#                       ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset))),
-#                       ' AUC: %.2f' % (auc_test))
-#
-#         # Save model and results
-#         if not os.path.exists(os.path.join("./ckpt/", data)):
-#             os.mkdir("./ckpt/")
-#             os.mkdir(os.path.join("./ckpt/", data))
-#         if not os.path.exists(os.path.join("./plots/", data)):
-#             os.mkdir("./plots/")
-#             os.mkdir(os.path.join("./plots/", data))
-#         torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
-#         plt.plot(train_loss_trend, label='Train loss')
-#         plt.plot(test_loss_trend, label='Validation loss')
-#         plt.legend()
-#         plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
-
-
 

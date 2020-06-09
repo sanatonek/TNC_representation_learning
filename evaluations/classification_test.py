@@ -5,8 +5,8 @@ import pickle
 import random
 import argparse
 
-from tcl.models import RnnEncoder, StateClassifier, E2EStateClassifier, WFEncoder, WFClassifier
-from tcl.utils import create_simulated_dataset
+from tnc.models import RnnEncoder, StateClassifier, E2EStateClassifier, WFEncoder, WFClassifier
+from tnc.utils import create_simulated_dataset
 from baselines.knn import KnnDtw
 from sklearn.metrics import roc_auc_score, confusion_matrix, accuracy_score
 
@@ -102,8 +102,6 @@ def train(train_loader, valid_loader, classifier, optimizer, data_type, encoder=
             train_loss, train_acc, train_auc, _  = epoch_run_encoder(encoder=encoder, classifier=classifier, dataloader=train_loader, optimizer=optimizer, train=True)
             test_loss, test_acc, test_auc, _  = epoch_run_encoder(encoder=encoder, classifier=classifier, dataloader=valid_loader, train=False)
         print(train_loss, train_acc, train_auc, '\t||\t', test_loss, test_acc, test_auc)
-        # print(train_loss, train_acc, train_auc)
-        # print(test_loss, test_acc, test_auc)
         if test_auc>best_auc:
             best_auc = test_auc
             best_acc = test_acc
@@ -139,11 +137,6 @@ def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
     with open(os.path.join(data_path, 'state_test.pkl'), 'rb') as f:
         y_test = pickle.load(f)
     T = x.shape[-1]
-    # x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
-    # y_window = np.concatenate(np.split(y[:, :5 * (T // 5)], 5, -1), 0).astype(int)
-    # y_window = np.array([np.bincount(yy).argmax() for yy in y_window])
-
-    # T = x.shape[-1]
     x_window = np.split(x[:, :, :window_size * (T // window_size)], (T // window_size), -1)
     y_window = np.concatenate(np.split(y[:, :window_size * (T // window_size)], (T // window_size), -1), 0).astype(int)
     x_window = torch.Tensor(np.concatenate(x_window, 0))
@@ -191,25 +184,30 @@ def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
             e2e_model = WFEncoder(encoding_size=encoding_size, classify=True, n_classes=n_classes).to(device)
 
             tcl_encoder = WFEncoder(encoding_size=encoding_size).to(device)
+            if not os.path.exists('./ckpt/waveform/checkpoint_%d.pth.tar'%cv):
+                RuntimeError('Checkpoint for TNC encoder does not exist!')
             tcl_checkpoint = torch.load('./ckpt/waveform/checkpoint_%d.pth.tar'%cv)
             tcl_encoder.load_state_dict(tcl_checkpoint['encoder_state_dict'])
             tcl_classifier = WFClassifier(encoding_size=encoding_size, output_size=4)
             tcl_model = torch.nn.Sequential(tcl_encoder, tcl_classifier).to(device)
 
             cpc_encoder = WFEncoder(encoding_size=encoding_size).to(device)
+            if not os.path.exists('./ckpt/waveform_cpc/checkpoint_%d.pth.tar'%cv):
+                RuntimeError('Checkpoint for CPC encoder does not exist!')
             cpc_checkpoint = torch.load('./ckpt/waveform_cpc/checkpoint_%d.pth.tar'%cv)
             cpc_encoder.load_state_dict(cpc_checkpoint['encoder_state_dict'])
             cpc_classifier = WFClassifier(encoding_size=encoding_size, output_size=4)
             cpc_model = torch.nn.Sequential(cpc_encoder, cpc_classifier).to(device)
 
             trip_encoder = WFEncoder(encoding_size=encoding_size).to(device)
+            if not os.path.exists('./ckpt/waveform_trip/checkpoint_%d.pth.tar'%cv):
+                RuntimeError('Checkpoint for Triplet Loss encoder does not exist!')
             trip_checkpoint = torch.load('./ckpt/waveform_trip/checkpoint_%d.pth.tar'%cv)
             trip_encoder.load_state_dict(trip_checkpoint['encoder_state_dict'])
             trip_classifier = WFClassifier(encoding_size=encoding_size, output_size=4)
             trip_model = torch.nn.Sequential(trip_encoder, trip_classifier).to(device)
             n_epochs = 5
             n_epoch_e2e = 5
-
 
         elif data == 'simulation':
             m_1 = KnnDtw()

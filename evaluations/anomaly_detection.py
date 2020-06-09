@@ -4,14 +4,14 @@ import pickle
 import numpy as np
 import random
 
-from tcl.models import WFEncoder
+from tnc.models import WFEncoder
 from sklearn.metrics import roc_auc_score, average_precision_score
 from baselines.dtw import DTWDistance, cluster
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 encoder = WFEncoder(encoding_size=64)
-tcl_checkpoint = torch.load('./ckpt/waveform/checkpoint_1.pth.tar')
+tcl_checkpoint = torch.load('./ckpt/waveform/checkpoint_0.pth.tar')
 # tcl_checkpoint = torch.load('./ckpt/waveform_trip/checkpoint.pth.tar')
 encoder.load_state_dict(tcl_checkpoint['encoder_state_dict'])
 encoder.eval()

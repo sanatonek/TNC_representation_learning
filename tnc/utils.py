@@ -98,25 +98,49 @@ def create_simulated_dataset(window_size=50, path='./data/simulated_data/', batc
     return train_loader, valid_loader, test_loader
 
 
-def track_encoding(sample, label, encoder, window_size, path, sliding_gap=20):
+def track_encoding(sample, label, encoder, window_size, path, sliding_gap=5):
     T = sample.shape[-1]
-    print('*************', T)
     windows_label = []
     encodings = []
     device = 'cuda'
     encoder.to(device)
     encoder.eval()
-    for t in range(0,T-2*window_size,sliding_gap):
+    for t in range(0,T-window_size,sliding_gap):
         windows = sample[:, t:t+window_size]
         windows_label.append((np.bincount(label[:t+window_size].astype(int)).argmax()))
-        encodings.append(encoder(torch.Tensor(windows).unsqueeze(0).to(device))[0])
+        encodings.append(encoder(torch.Tensor(windows).unsqueeze(0).to(device)))
+    for t in range(sliding_gap):
+        encodings.append(encodings[-1])
     encodings = torch.stack(encodings, 0)
 
-    print(windows_label)
-    print(encodings.shape)
+
+    f, axs = plt.subplots(2)#, gridspec_kw={'height_ratios': [1, 2]})
+    f.set_figheight(10)
+    f.set_figwidth(25)
+    # axs[0].plot(sample[0])
+    axs[0].set_title('Time series Sample Trajectory', fontsize=34)
+    # axs[0].plot(sample[1])
+    # axs[0].plot(sample[2])
+    sns.lineplot(np.arange(sample.shape[1]), sample[0], ax=axs[0])
+    sns.lineplot(np.arange(sample.shape[1]), sample[1], ax=axs[0])
+    sns.lineplot(np.arange(sample.shape[1]), sample[2], ax=axs[0])
+    # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[0, :-window_size], ax=axs[0])
+    # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[1, :-window_size], ax=axs[0])
+    # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[2, :-window_size], ax=axs[0])
+    axs[0].xaxis.set_tick_params(labelsize=22)
+    axs[0].yaxis.set_tick_params(labelsize=22)
+    axs[1].xaxis.set_tick_params(labelsize=22)
+    axs[1].yaxis.set_tick_params(labelsize=22)
+    axs[1].set_ylabel('Encoding dimensions', fontsize=30)
+    axs[0].margins(x=0)
+    for t in range(label.shape[-1]):#-window_size):
+        axs[0].axvspan(t, min(t+1, label.shape[-1]-1), facecolor=['y', 'g', 'b', 'r'][label[t]], alpha=0.3)
+    axs[1].set_title('Encoding Trajectory', fontsize=30)
+    sns.heatmap(encodings.detach().cpu().numpy().T, cbar=False, linewidth=0.5, ax=axs[1], linewidths=0.05, xticklabels=False)
+    f.tight_layout()
 
 
-    sns.heatmap(encodings.detach().cpu().numpy().T, linewidth=0.5)
+    # sns.heatmap(encodings.detach().cpu().numpy().T, linewidth=0.5)
     plt.savefig(os.path.join("./plots/%s" % path, "embedding_trajectory_hm.pdf"))
 
     # windows = np.split(sample[:, :window_size * (T // window_size)], (T // window_size), -1)
@@ -130,7 +154,6 @@ def track_encoding(sample, label, encoder, window_size, path, sliding_gap=20):
     embedding = pca.fit_transform(encodings.detach().cpu().numpy())
     d = {'f1':embedding[:,0], 'f2':embedding[:,1], 'time':np.arange(len(embedding))}#, 'label':windows_label}
     df = pd.DataFrame(data=d)
-    # print(df)
     fig, ax = plt.subplots()
     ax.set_title("Trajectory")
     # sns.jointplot(x="f1", y="f2", data=df, kind="kde", size='time', hue='label')
@@ -151,7 +174,6 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, title=
     encodings = encoder(torch.Tensor(windows).to(device))
 
     s_score = silhouette_score(encodings.detach().cpu().numpy(), np.array(windows_state))
-    print('*********************', s_score)
 
     tsne = TSNE(n_components=2)
     embedding = tsne.fit_transform(encodings.detach().cpu().numpy())
@@ -244,69 +266,6 @@ def model_distribution(x_train, y_train, x_test, y_test, encoder, window_size, p
     # print(neigh_ind_labels[:10])
     # print(accuracy_score(y_window_test, preds))
     # dist = np.linalg.norm(neigh_ind_labels - y_window_test)**2/len(y_window_test)
-    print(dist)
-
-
-
-    # for i in range(4):
-    #     train_count.append(windows_label.count(i)/len(windows_label))
-    # print('Class distribution in train set: ', train_count)
-    # # encodings = encoder(torch.Tensor(windows).to(device))
-    # dpgmm = DPGMM(20)
-    # dpgmm.fit(encodings)
-    # log_lik_train = dpgmm.score(encodings)
-    # print('Training Log likelihood: ', log_lik_train)
-    # ind_1 = np.argwhere(y_train == 2.)
-    # ind_1 = [ind_ii for ii, ind_ii in enumerate(ind_1) if ii%2000==0]
-    # rare_samples = [x_train[k[0], :, k[1]:k[1]+window_size] for k in ind_1[0:min(10, len(ind_1))]]
-    # sample_1 = encoder(torch.Tensor(rare_samples).to(device))
-    # # sample_1 = encoder(torch.Tensor(x_train[ind_1[0], :, ind_1[1]:ind_1[1] + window_size]).unsqueeze(0).to(device))
-    # score_1 = dpgmm.score(sample_1.detach().cpu().numpy())
-    # print('Log likelihood of rare samples from training set: ', score_1)
-    #
-    # # ind_3 = np.argwhere(y_train == 3.)
-    # # ind_3 = [ind_ii for ii, ind_ii in enumerate(ind_3) if ii%20000==0]
-    # # common_samples = [x_train[k[0], :, k[1]:k[1] + window_size] for k in ind_3]
-    # # # sample_0 = encodings[windows_label.index(3)]
-    # # sample_0 = encoder(torch.Tensor(common_samples).to(device))
-    # # score_0 = dpgmm.score(sample_0.reshape((1, -1)))
-    # # print('Log likelihood of a common sample from the training set: ', score_0)
-    #
-    #
-    # test_windows = np.array([x_test[int(i % n_test), :, ind:ind + window_size] for i, ind in enumerate(inds)])
-    # test_windows_label = [np.round(np.mean(y_test[i % n_test, ind:ind + window_size], axis=-1))
-    #                       for i, ind in enumerate(inds)]
-    # test_count = []
-    # for i in range(4):
-    #     test_count.append(test_windows_label.count(i) / len(test_windows_label))
-    # print('Class distribution in test set: ', test_count)
-    #
-    # testset = data.TensorDataset(torch.Tensor(test_windows), torch.Tensor(test_windows_label))
-    # test_loader = data.DataLoader(testset, batch_size=10, shuffle=True, sampler=None, batch_sampler=None,
-    #                                num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
-    # test_encodings = []
-    # for x, _ in test_loader:
-    #     x = x.to(device)
-    #     test_encodings.append(encoder(x).detach().cpu().numpy())
-    # test_encodings = np.concatenate(test_encodings, 0)
-    # # test_encodings = encoder(torch.Tensor(test_windows).to(device))
-    # log_lik_test = dpgmm.score(test_encodings)
-    # print('Test Log likelihood: ', log_lik_test)
-    # ind_1 = np.argwhere(y_train == 2.)#[0]
-    # ind_1 = [ind_ii for ii, ind_ii in enumerate(ind_1) if ii%2000==0]
-    # rare_samples = [x_train[k[0], :, k[1]:k[1]+window_size] for k in ind_1]
-    # sample_1 = encoder(torch.Tensor(rare_samples).to(device))
-    # # ind_1 = np.argwhere(y_test == 1.)[0]
-    # # sample_1 = encoder(torch.Tensor(x_test[ind_1[0], :, ind_1[1]:ind_1[1] + window_size]).unsqueeze(0).to(device))
-    # score_1 = dpgmm.score(sample_1.detach().cpu().numpy())
-    # print('Log likelihood of a rare sample from th test set: ', score_1)
-    # # ind_3 = np.argwhere(y_train == 3.)
-    # # ind_3 = [ind_ii for ii, ind_ii in enumerate(ind_3) if ii%20000==0]
-    # # common_samples = [x_train[k[0], :, k[1]:k[1] + window_size] for k in ind_3]
-    # # sample_0 = encoder(torch.Tensor(common_samples).to(device))
-    # # # sample_0 = test_encodings[test_windows_label.index(3)]
-    # # score_0 = dpgmm.score(sample_0[np.newaxis,:])
-    # # print('Log likelihood of a common sample from the test set: ', score_0)
 
 
 def confidence_ellipse(mean, cov, ax, n_std=1.0, facecolor='none', **kwargs):
