@@ -96,11 +96,6 @@ class TripletLoss(torch.nn.modules.loss._Loss):
             size=(self.nb_random_samples, batch_size)
         )
 
-        # print('Actual ...............', torch.cat(
-        #     [batch[
-        #         j: j + 1, :,
-        #         beginning_batches[j]: beginning_batches[j] + random_length
-        #     ] for j in range(batch_size)]).shape)
 
         representation = encoder(torch.cat(
             [batch[
@@ -186,8 +181,8 @@ def epoch_run(data, encoder, device, window_size, optimizer=None, train=True):
     return epoch_loss/i, acc/i
 
 
-def learn_encoder(x, window_size, data, lr=0.001, decay=0, n_epochs=100, device='cpu'):
-    for cv in range(4):
+def learn_encoder(x, window_size, data, lr=0.001, decay=0, n_epochs=100, device='cpu', n_cross_val=1):
+    for cv in range(n_cross_val):
         if 'waveform' in data:
             encoder = WFEncoder(encoding_size=64).to(device)
         else:
@@ -198,8 +193,6 @@ def learn_encoder(x, window_size, data, lr=0.001, decay=0, n_epochs=100, device=
         random.shuffle(inds)
         x = x[inds]
         n_train = int(0.8*len(x))
-        performance = []
-        best_loss = np.inf
         train_loss, test_loss = [], []
         best_loss = np.inf
         for epoch in range(n_epochs):
@@ -226,53 +219,56 @@ def learn_encoder(x, window_size, data, lr=0.001, decay=0, n_epochs=100, device=
         plt.savefig(os.path.join("./plots/%s_trip/loss_%d.pdf"%(data,cv)))
 
 
-def main(data):
+def main(is_train, data, cv):
     if not os.path.exists("./plots"):
         os.mkdir("./plots")
     if not os.path.exists("./ckpt/"):
         os.mkdir("./ckpt/")
+
     if data =='waveform':
         path = './data/waveform_data/processed'
-        kf = KFold(n_splits=4)
-        encoding_size = 64
         window_size = 2500
         encoder = WFEncoder(encoding_size=64).to(device)
-        with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
-            x = pickle.load(f)
-        T = x.shape[-1]
-        x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
-        learn_encoder(x_window, window_size, n_epochs=50, lr=1e-5, decay=1e-2, data='waveform')
-
-        with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
-            x_test = pickle.load(f)
-        with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
-            y_test = pickle.load(f)
-        plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data, device=device, augment=100)
-        # model_distribution(None, None, x_test, y_test, encoder, window_size, 'waveform', device)
-        exp = WFClassificationExperiment(window_size=window_size, data='waveform_trip')
-        exp.run(data='waveform_trip', n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
+        if is_train:
+            with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+                x = pickle.load(f)
+            T = x.shape[-1]
+            x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
+            learn_encoder(x_window, window_size, n_epochs=50, lr=1e-5, decay=1e-2, data='waveform', n_cross_val=cv)
+        else:
+            with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+                x_test = pickle.load(f)
+            with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
+                y_test = pickle.load(f)
+            plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data, device=device, augment=100)
+            # model_distribution(None, None, x_test, y_test, encoder, window_size, 'waveform', device)
+            exp = WFClassificationExperiment(window_size=window_size, data='waveform_trip')
+            exp.run(data='waveform_trip', n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
 
     else:
         path = './data/simulated_data/'
         window_size = 50
         encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device).to(device)
-        with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
-            x = pickle.load(f)
-        learn_encoder(x, window_size, lr=1e-4, decay=0.0001, data=data, n_epochs=100, device=device)
-
-        with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
-            x_test = pickle.load(f)
-        with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
-            y_test = pickle.load(f)
-        plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data, title='Triplet Loss', device=device)
-        # model_distribution(x, y, x_test, y_test, encoder, window_size, 'simulation_trip', device)
-        exp = ClassificationPerformanceExperiment(path='simulation_trip')
-        exp.run(data='simulation_trip', n_epochs=70, lr_e2e=0.01, lr_cls=0.001)
+        if is_train:
+            with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+                x = pickle.load(f)
+            learn_encoder(x, window_size, lr=1e-4, decay=0.0001, data=data, n_epochs=100, device=device, n_cross_val=cv)
+        else:
+            with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+                x_test = pickle.load(f)
+            with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
+                y_test = pickle.load(f)
+            plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data, title='Triplet Loss', device=device)
+            # model_distribution(x, y, x_test, y_test, encoder, window_size, 'simulation_trip', device)
+            exp = ClassificationPerformanceExperiment(path='simulation_trip')
+            exp.run(data='simulation_trip', n_epochs=70, lr_e2e=0.01, lr_cls=0.001)
 
 
 if __name__=="__main__":
     random.seed(1234)
     parser = argparse.ArgumentParser(description='Run Triplet Loss')
     parser.add_argument('--data', type=str, default='simulation')
+    parser.add_argument('--cv', type=int, default=1)
+    parser.add_argument('--train', action='store_true')
     args = parser.parse_args()
-    main(args.data)
+    main(args.train, args.data, args.cv)

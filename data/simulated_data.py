@@ -129,4 +129,4 @@ def normalize(train_data, test_data, config='mean_normalized'):
 
 
 if __name__ == '__main__':
-    main(n_samples=500, sig_len=800)
+    main(n_samples=500, sig_len=2000)

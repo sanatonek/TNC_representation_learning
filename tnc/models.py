@@ -43,10 +43,11 @@ class StateClassifier(torch.nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.nn = torch.nn.Sequential(torch.nn.Linear(self.input_size, self.output_size))
+        torch.nn.init.xavier_uniform_(self.nn[0].weight)
 
     def forward(self, x):
         logits = self.nn(x)
-        return torch.nn.Softmax(-1)(logits)
+        return logits
 
 
 class WFClassifier(torch.nn.Module):
@@ -99,7 +100,7 @@ class E2EStateClassifier(torch.nn.Module):
             past = (h_0, c_0)
         out, _ = self.rnn(x, past)  # out shape = [seq_len, batch_size, num_directions*hidden_size]
         encodings = self.fc(out[-1].squeeze(0))
-        return torch.nn.Softmax(-1)(self.nn(encodings))
+        return self.nn(encodings)
 
 
 class MimicEncoder(torch.nn.Module):

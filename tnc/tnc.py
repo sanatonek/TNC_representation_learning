@@ -147,8 +147,9 @@ def epoch_run(loader, disc_model, encoder, device, optimizer=None, train=True):
 
 
 def learn_encoder(x, encoder, window_size, lr=0.001, decay=0.005, epsilon=20, delta=150, mc_sample_size=20,
-                  n_epochs=100, path='simulation', device='cpu', augmentation=1):
-    for cv in range(4):
+                  n_epochs=100, path='simulation', device='cpu', augmentation=1, n_cross_val=1):
+    accuracies = []
+    for cv in range(n_cross_val):
         if 'waveform' in path:
             encoder = WFEncoder(encoding_size=64).to(device)
         else:
@@ -191,7 +192,7 @@ def learn_encoder(x, encoder, window_size, lr=0.001, decay=0.005, epsilon=20, de
                     'best_accuracy': test_acc
                 }
                 torch.save(state, './ckpt/%s/checkpoint_%d.pth.tar'%(path,cv))
-
+        accuracies.append(best_acc)
         # Save performance plots
         if not os.path.exists('./plots/%s'%path):
             os.mkdir('./plots/%s'%path)
@@ -212,90 +213,86 @@ def learn_encoder(x, encoder, window_size, lr=0.001, decay=0.005, epsilon=20, de
         plt.legend()
         plt.savefig(os.path.join("./plots/%s"%path, "accuracy_%d.pdf"%cv))
 
+    print('=======> Performance Summary:')
+    print('Accuracy: %.2f +- %.2f'%(100*np.mean(accuracies), 100*np.std(accuracies)))
     return encoder
 
 
-def main(is_train, data_type):
+def main(is_train, data_type, cv):
     if not os.path.exists("./plots"):
         os.mkdir("./plots")
     if not os.path.exists("./ckpt/"):
         os.mkdir("./ckpt/")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    if is_train and data_type=='simulation':
+    if data_type=='simulation':
         window_size = 50
         encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device)
         path = './data/simulated_data/'
 
-        with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
-            x = pickle.load(f)
-        with open(os.path.join(path, 'state_train.pkl'), 'rb') as f:
-            y = pickle.load(f)
+        if is_train:
+            with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+                x = pickle.load(f)
+            with open(os.path.join(path, 'state_train.pkl'), 'rb') as f:
+                y = pickle.load(f)
 
-        track_encoding(x[0,:,400:], y[0,400:], encoder, window_size, 'simulation')
-        learn_encoder(x, encoder, lr=1e-3, decay=1e-5, window_size=window_size, epsilon=2., delta=300, n_epochs=80,
-                      mc_sample_size=20, path='simulation', device=device, augmentation=5)
+            track_encoding(x[0,:,400:], y[0,400:], encoder, window_size, 'simulation')
+            learn_encoder(x, encoder, lr=1e-3, decay=1e-5, window_size=window_size, epsilon=2., delta=300, n_epochs=80,
+                          mc_sample_size=20, path='simulation', device=device, augmentation=5, n_cross_val=cv)
+        else:
+            ## Plot a sample
+            # f, axes = plt.subplots(3, 1)
+            # f.set_figheight(3)
+            # f.set_figwidth(13)
+            # color = [[0.6350, 0.0780, 0.1840], [0.4660, 0.6740, 0.1880], [0, 0.4470, 0.7410]]
+            # for i, ax in enumerate(axes):
+            #     ax.set(ylabel='Feature %d'%i, xlabel='time')
+            #     ax.plot(x[10, i, :], c=color[i])
+            #     for t in range(x[10, i, :].shape[-1]):
+            #         ax.axvspan(t, min(t + 1, x.shape[-1] - 1), facecolor=['y', 'g', 'b', 'r'][y[10, t]],
+            #                    alpha=0.6)
+            # f.set_figheight(6)
+            # f.set_figwidth(12)
+            # plt.savefig('./simulation_sample.pdf')
+            with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+                x_test = pickle.load(f)
+            with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
+                y_test = pickle.load(f)
+            plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation', title='Our Approach', device=device)
+            # model_distribution(x, y, x_test, y_test, encoder, window_size, 'simulation', device)
+            exp = ClassificationPerformanceExperiment()
+            exp.run(data='simulation', n_epochs=70, lr_e2e=0.01, lr_cls=0.001)
 
-        ## Plot a sample
-        # f, axes = plt.subplots(3, 1)
-        # f.set_figheight(3)
-        # f.set_figwidth(13)
-        # color = [[0.6350, 0.0780, 0.1840], [0.4660, 0.6740, 0.1880], [0, 0.4470, 0.7410]]
-        # for i, ax in enumerate(axes):
-        #     ax.set(ylabel='Feature %d'%i, xlabel='time')
-        #     ax.plot(x[10, i, :], c=color[i])
-        #     for t in range(x[10, i, :].shape[-1]):
-        #         ax.axvspan(t, min(t + 1, x.shape[-1] - 1), facecolor=['y', 'g', 'b', 'r'][y[10, t]],
-        #                    alpha=0.6)
-        # f.set_figheight(6)
-        # f.set_figwidth(12)
-        # plt.savefig('./simulation_sample.pdf')
-
-        with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
-            x_test = pickle.load(f)
-        with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
-            y_test = pickle.load(f)
-        plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation', title='Our Approach', device=device)
-        model_distribution(x, y, x_test, y_test, encoder, window_size, 'simulation', device)
-        exp = ClassificationPerformanceExperiment()
-        exp.run(data='simulation', n_epochs=70, lr_e2e=0.01, lr_cls=0.001)
-
-    if is_train and data_type == 'mimic':
-        p_data = PatientData()
-        n_patient, n_features, length = p_data.train_data.shape
-        encoder = MimicEncoder(input_size=2, in_channel=n_features, encoding_size=10)
-        learn_encoder(p_data.train_data, encoder, window_size=2, delta=5, epsilon=2,
-                      path='mimic', mc_sample_size=5)
-
-    if is_train and data_type == 'wf':
+    if data_type == 'wf':
         window_size = 2500
         path = './data/waveform_data/processed'
         encoder = WFEncoder(encoding_size=64).to(device)
-        with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
-            x = pickle.load(f)
-        T = x.shape[-1]
-        x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
-        # exp = WFClassificationExperiment(window_size=window_size)
-        # exp.run(data='waveform', n_epochs=5, lr_e2e=0.001, lr_cls=0.001)
-        learn_encoder(torch.Tensor(x_window), encoder, lr=1e-5, decay=1e-3, n_epochs=150, window_size=window_size, delta=400000,
-                      epsilon=3, path='waveform', mc_sample_size=10, device=device, augmentation=5)
 
-        with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
-            x_test = pickle.load(f)
-        with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
-            y_test = pickle.load(f)
-        plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device, augment=100)    # if is_train:
-        # model_distribution(None, None, x_test, y_test, encoder, window_size, 'waveform', device)
-
-        exp = WFClassificationExperiment(window_size=window_size)
-        exp.run(data='waveform', n_epochs=5, lr_e2e=0.001, lr_cls=0.001)
+        if is_train:
+            with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+                x = pickle.load(f)
+            T = x.shape[-1]
+            x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
+            learn_encoder(torch.Tensor(x_window), encoder, lr=1e-5, decay=1e-3, n_epochs=150, window_size=window_size, delta=400000,
+                          epsilon=3, path='waveform', mc_sample_size=10, device=device, augmentation=5, n_cross_val=cv)
+        else:
+            with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+                x_test = pickle.load(f)
+            with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
+                y_test = pickle.load(f)
+            plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device, augment=100)    # if is_train:
+            # model_distribution(None, None, x_test, y_test, encoder, window_size, 'waveform', device)
+            exp = WFClassificationExperiment(window_size=window_size)
+            exp.run(data='waveform', n_epochs=5, lr_e2e=0.001, lr_cls=0.001)
 
 
 if __name__=='__main__':
     random.seed(1234)
     parser = argparse.ArgumentParser(description='Run TNC')
     parser.add_argument('--data', type=str, default='simulation')
+    parser.add_argument('--cv', type=int, default=1)
+    parser.add_argument('--train', action='store_true')
     args = parser.parse_args()
-    main(True, args.data)
+    main(args.train, args.data, args.cv)
 
 
