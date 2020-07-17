@@ -234,13 +234,15 @@ def main(is_train, data, cv):
                 x = pickle.load(f)
             T = x.shape[-1]
             x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
-            learn_encoder(x_window, window_size, n_epochs=50, lr=1e-5, decay=1e-2, data='waveform', n_cross_val=cv)
+            learn_encoder(x_window, window_size, n_epochs=50, lr=1e-4, decay=1e-4, data='waveform', n_cross_val=cv)
         else:
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
                 x_test = pickle.load(f)
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
                 y_test = pickle.load(f)
-            plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data, device=device, augment=100)
+            for cv_ind in range(cv):
+                plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data,
+                                  device=device, augment=100, cv=cv_ind, title='Triplet Loss')
             # model_distribution(None, None, x_test, y_test, encoder, window_size, 'waveform', device)
             exp = WFClassificationExperiment(window_size=window_size, data='waveform_trip')
             exp.run(data='waveform_trip', n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
@@ -258,7 +260,9 @@ def main(is_train, data, cv):
                 x_test = pickle.load(f)
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
                 y_test = pickle.load(f)
-            plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data, title='Triplet Loss', device=device)
+            for cv_ind in range(cv):
+                plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data,
+                                  title='Triplet Loss', device=device, cv=cv_ind)
             # model_distribution(x, y, x_test, y_test, encoder, window_size, 'simulation_trip', device)
             exp = ClassificationPerformanceExperiment(path='simulation_trip')
             exp.run(data='simulation_trip', n_epochs=70, lr_e2e=0.01, lr_cls=0.001)

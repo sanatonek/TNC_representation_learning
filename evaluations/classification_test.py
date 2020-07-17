@@ -188,13 +188,13 @@ def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
 
             e2e_model = WFEncoder(encoding_size=encoding_size, classify=True, n_classes=n_classes).to(device)
 
-            tcl_encoder = WFEncoder(encoding_size=encoding_size).to(device)
+            tnc_encoder = WFEncoder(encoding_size=encoding_size).to(device)
             if not os.path.exists('./ckpt/waveform/checkpoint_%d.pth.tar'%cv):
                 RuntimeError('Checkpoint for TNC encoder does not exist!')
-            tcl_checkpoint = torch.load('./ckpt/waveform/checkpoint_%d.pth.tar'%cv)
-            tcl_encoder.load_state_dict(tcl_checkpoint['encoder_state_dict'])
-            tcl_classifier = WFClassifier(encoding_size=encoding_size, output_size=4)
-            tcl_model = torch.nn.Sequential(tcl_encoder, tcl_classifier).to(device)
+            tnc_checkpoint = torch.load('./ckpt/waveform/checkpoint_%d.pth.tar'%cv)
+            tnc_encoder.load_state_dict(tnc_checkpoint['encoder_state_dict'])
+            tnc_classifier = WFClassifier(encoding_size=encoding_size, output_size=4)
+            tcl_model = torch.nn.Sequential(tnc_encoder, tnc_classifier).to(device)
 
             cpc_encoder = WFEncoder(encoding_size=encoding_size).to(device)
             if not os.path.exists('./ckpt/waveform_cpc/checkpoint_%d.pth.tar'%cv):
@@ -314,13 +314,9 @@ def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
           (100 * np.mean(trip_accs), 100 * np.std(trip_accs), 100 * np.mean(trip_aucs), 100 * np.std(trip_aucs)))
 
 
-
-
 if __name__=='__main__':
-    parser = argparse.ArgumentParser(description='Run baseline model for explanation')
-    args = parser.parse_args()
     random.seed(1234)
-    parser = argparse.ArgumentParser(description='Run TNC')
+    parser = argparse.ArgumentParser(description='Run classification test')
     parser.add_argument('--data', type=str, default='simulation')
     args = parser.parse_args()
 

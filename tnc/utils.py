@@ -166,7 +166,6 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, title=
     encoder.load_state_dict(checkpoint['encoder_state_dict'])
     encoder = encoder.to(device)
     n_test = len(x_test)
-    print(x_test.shape[-1] - window_size)
     inds = np.random.randint(0, x_test.shape[-1] - window_size, n_test * augment)
     windows = np.array([x_test[int(i % n_test), :, ind:ind + window_size] for i, ind in enumerate(inds)])
     windows_state = [np.round(np.mean(y_test[i % n_test, ind:ind + window_size], axis=-1)) for i, ind in

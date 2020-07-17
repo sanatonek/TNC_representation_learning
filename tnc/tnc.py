@@ -240,30 +240,18 @@ def main(is_train, data_type, cv):
             learn_encoder(x, encoder, lr=1e-3, decay=1e-5, window_size=window_size, epsilon=2., delta=300, n_epochs=80,
                           mc_sample_size=20, path='simulation', device=device, augmentation=5, n_cross_val=cv)
         else:
-            ## Plot a sample
-            # f, axes = plt.subplots(3, 1)
-            # f.set_figheight(3)
-            # f.set_figwidth(13)
-            # color = [[0.6350, 0.0780, 0.1840], [0.4660, 0.6740, 0.1880], [0, 0.4470, 0.7410]]
-            # for i, ax in enumerate(axes):
-            #     ax.set(ylabel='Feature %d'%i, xlabel='time')
-            #     ax.plot(x[10, i, :], c=color[i])
-            #     for t in range(x[10, i, :].shape[-1]):
-            #         ax.axvspan(t, min(t + 1, x.shape[-1] - 1), facecolor=['y', 'g', 'b', 'r'][y[10, t]],
-            #                    alpha=0.6)
-            # f.set_figheight(6)
-            # f.set_figwidth(12)
-            # plt.savefig('./simulation_sample.pdf')
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
                 x_test = pickle.load(f)
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
                 y_test = pickle.load(f)
-            plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation', title='Our Approach', device=device)
+            for cv_ind in range(cv):
+                plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation',
+                                  title='TNC', device=device, cv=cv_ind)
             # model_distribution(x, y, x_test, y_test, encoder, window_size, 'simulation', device)
             exp = ClassificationPerformanceExperiment()
             exp.run(data='simulation', n_epochs=70, lr_e2e=0.01, lr_cls=0.001)
 
-    if data_type == 'wf':
+    if data_type == 'waveform':
         window_size = 2500
         path = './data/waveform_data/processed'
         encoder = WFEncoder(encoding_size=64).to(device)
@@ -273,14 +261,16 @@ def main(is_train, data_type, cv):
                 x = pickle.load(f)
             T = x.shape[-1]
             x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
-            learn_encoder(torch.Tensor(x_window), encoder, lr=1e-5, decay=1e-3, n_epochs=150, window_size=window_size, delta=400000,
+            learn_encoder(torch.Tensor(x_window), encoder, lr=1e-5, decay=1e-3, n_epochs=200, window_size=window_size, delta=400000,
                           epsilon=3, path='waveform', mc_sample_size=10, device=device, augmentation=5, n_cross_val=cv)
         else:
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
                 x_test = pickle.load(f)
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
                 y_test = pickle.load(f)
-            plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform', device=device, augment=100)    # if is_train:
+            for cv_ind in range(cv):
+                plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform',
+                                  device=device, augment=100, cv=cv_ind, title='TNC')
             # model_distribution(None, None, x_test, y_test, encoder, window_size, 'waveform', device)
             exp = WFClassificationExperiment(window_size=window_size)
             exp.run(data='waveform', n_epochs=5, lr_e2e=0.001, lr_cls=0.001)
