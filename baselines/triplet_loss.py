@@ -6,7 +6,6 @@ import random
 import pickle
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set()
-from sklearn.model_selection import KFold
 
 from tnc.models import RnnEncoder, WFEncoder
 from tnc.utils import plot_distribution, model_distribution
@@ -71,9 +70,6 @@ class TripletLoss(torch.nn.modules.loss._Loss):
         # We choose for each batch example a random interval in the time
         # series, which is the 'anchor'
         random_length = self.compared_length
-        # random_length = np.random.randint(
-        #     length_pos_neg, high=length + 1
-        # )  # Length of anchors
 
         beginning_batches = np.random.randint(
             0, high=length - random_length + 1, size=batch_size
@@ -82,7 +78,6 @@ class TripletLoss(torch.nn.modules.loss._Loss):
         # The positive samples are chosen at random in the chosen anchors
         beginning_samples_pos = np.random.randint(
             0, high=random_length + 1, size=batch_size
-            # 0, high=random_length - length_pos_neg + 1, size=batch_size
         )  # Start of positive samples in the anchors
         # Start of positive samples in the batch examples
         beginning_positive = beginning_batches + beginning_samples_pos
@@ -234,7 +229,7 @@ def main(is_train, data, cv):
                 x = pickle.load(f)
             T = x.shape[-1]
             x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
-            learn_encoder(x_window, window_size, n_epochs=50, lr=1e-4, decay=1e-4, data='waveform', n_cross_val=cv)
+            learn_encoder(x_window, window_size, n_epochs=150, lr=1e-4, decay=1e-4, data='waveform', n_cross_val=cv)
         else:
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
                 x_test = pickle.load(f)
