@@ -11,40 +11,36 @@ from tnc.models import RnnEncoder, WFEncoder
 from tnc.utils import plot_distribution, model_distribution
 from tnc.evaluations import ClassificationPerformanceExperiment, WFClassificationExperiment
 
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-def epoch_run(data, ds_estimator, encoder, device, window_size, n_size=5, optimizer=None, train=True):
+def epoch_run(data, ds_estimator, auto_regressor, encoder, device, window_size, n_size=5, optimizer=None, train=True):
     if train:
         encoder.train()
         ds_estimator.train()
+        auto_regressor.train()
     else:
         encoder.eval()
         ds_estimator.eval()
+        auto_regressor.eval()
     encoder.to(device)
     ds_estimator.to(device)
+    auto_regressor.to(device)
 
     epoch_loss = 0
     acc = 0
     for sample in data:
         rnd_t = np.random.randint(5*window_size,sample.shape[-1]-5*window_size)
-        # print(rnd_t)
-        # print(max(0,(rnd_t-10*window_size)),min(sample.shape[-1], rnd_t+10*window_size))
         sample = torch.Tensor(sample[:,max(0,(rnd_t-20*window_size)):min(sample.shape[-1], rnd_t+20*window_size)])
-        # print(sample.shape)
 
-
-        # start = np.random.randint(0,10)
-        # sample = torch.Tensor(sample[:,start:])
         T = sample.shape[-1]
-
         windowed_sample = np.split(sample[:, :(T // window_size) * window_size], (T // window_size), -1)
         windowed_sample = torch.tensor(np.stack(windowed_sample, 0), device=device)
         encodings = encoder(windowed_sample)
         window_ind = torch.randint(2,len(encodings)-2, size=(1,))
+        _, c_t = auto_regressor(encodings[max(0, window_ind[0]-10):window_ind[0]+1].unsqueeze(0))
         density_ratios = torch.bmm(encodings.unsqueeze(1),
-                                       ds_estimator(encodings[window_ind]).expand_as(encodings).unsqueeze(-1)).view(-1,)
+                                       ds_estimator(c_t.squeeze(1).squeeze(0)).expand_as(encodings).unsqueeze(-1)).view(-1,)
         r = set(range(0, window_ind[0] - 2))
         r.update(set(range(window_ind[0] + 3, len(encodings))))
         rnd_n = np.random.choice(list(r), n_size)
@@ -66,11 +62,14 @@ def learn_encoder(x, window_size, lr=0.001, decay=0, n_size=5, n_epochs=50, data
     accuracies = []
     for cv in range(n_cross_val):
         if 'waveform' in data:
+            encoding_size = 64
             encoder = WFEncoder(encoding_size=64).to(device)
         else:
+            encoding_size = 10
             encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device)
         ds_estimator = torch.nn.Linear(encoder.encoding_size, encoder.encoding_size)
-        params = list(ds_estimator.parameters()) + list(encoder.parameters())
+        auto_regressor = torch.nn.GRU(input_size=encoding_size, hidden_size=encoding_size, batch_first=True)
+        params = list(ds_estimator.parameters()) + list(encoder.parameters()) + list(auto_regressor.parameters())
         optimizer = torch.optim.Adam(params, lr=lr, weight_decay=decay)
         inds = list(range(len(x)))
         random.shuffle(inds)
@@ -80,9 +79,9 @@ def learn_encoder(x, window_size, lr=0.001, decay=0, n_size=5, n_epochs=50, data
         best_loss = np.inf
         train_loss, test_loss = [], []
         for epoch in range(n_epochs):
-            epoch_loss, acc = epoch_run(x[:n_train], ds_estimator, encoder, device, window_size, optimizer=optimizer,
+            epoch_loss, acc = epoch_run(x[:n_train], ds_estimator, auto_regressor, encoder, device, window_size, optimizer=optimizer,
                                         n_size=n_size, train=True)
-            epoch_loss_test, acc_test = epoch_run(x[n_train:], ds_estimator, encoder, device, window_size, n_size=n_size, train=False)
+            epoch_loss_test, acc_test = epoch_run(x[n_train:], ds_estimator, auto_regressor, encoder, device, window_size, n_size=n_size, train=False)
             print('\nEpoch ', epoch)
             print('Train ===> Loss: ', epoch_loss, '\t Accuracy: ', acc)
             print('Test ===> Loss: ', epoch_loss_test, '\t Accuracy: ', acc_test)
@@ -108,7 +107,7 @@ def learn_encoder(x, window_size, lr=0.001, decay=0, n_size=5, n_epochs=50, data
     print('Accuracy: %.2f +- %.2f' % (100 * np.mean(accuracies), 100 * np.std(accuracies)))
 
 
-def main(is_train, data_type, cv):
+def main(is_train, data_type, lr,  cv):
     if not os.path.exists("./plots"):
         os.mkdir("./plots")
     if not os.path.exists("./ckpt/"):
@@ -124,8 +123,8 @@ def main(is_train, data_type, cv):
                 x = pickle.load(f)
             T = x.shape[-1]
             x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
-            learn_encoder(x_window, window_size, n_epochs=50, lr=1e-4, decay=1e-5,  n_size=10,
-                          device=device, data=data_type, n_cross_val=cv, title='CPC')
+            learn_encoder(x_window, window_size, n_epochs=100, lr=lr, decay=1e-5,  n_size=10,
+                          device=device, data=data_type, n_cross_val=cv)
 
         else:
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
@@ -146,7 +145,7 @@ def main(is_train, data_type, cv):
         if is_train:
             with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
                 x = pickle.load(f)
-            learn_encoder(x, window_size, n_epochs=100, lr=1e-4, decay=1e-4, n_size=15,
+            learn_encoder(x, window_size, n_epochs=200, lr=lr, decay=1e-4, n_size=15,
                           data=data_type, device=device, n_cross_val=cv)
 
         else:
@@ -167,7 +166,8 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Run CPC')
     parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--cv', type=int, default=1)
+    parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--train', action='store_true')
     args = parser.parse_args()
-    main(args.train, args.data, args.cv)
+    main(args.train, args.data, args.lr, args.cv)
 
