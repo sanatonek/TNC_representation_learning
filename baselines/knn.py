@@ -84,7 +84,7 @@ def main(args):
 
 if __name__=='__main__':
     random.seed(1234)
-    parser = argparse.ArgumentParser(description='Run DTW')
+    parser = argparse.ArgumentParser(description='Run KNN')
     parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--K', type=int, default=10)
     args = parser.parse_args()

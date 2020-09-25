@@ -59,14 +59,21 @@ def epoch_run(data, ds_estimator, auto_regressor, encoder, device, window_size, 
 
 
 def learn_encoder(x, window_size, lr=0.001, decay=0, n_size=5, n_epochs=50, data='simulation', device='cpu', n_cross_val=1):
+    if not os.path.exists("./plots/%s_cpc/"%data):
+        os.mkdir("./plots/%s_cpc/"%data)
+    if not os.path.exists("./ckpt/%s_cpc/"%data):
+        os.mkdir("./ckpt/%s_cpc/"%data)
     accuracies = []
     for cv in range(n_cross_val):
         if 'waveform' in data:
             encoding_size = 64
             encoder = WFEncoder(encoding_size=64).to(device)
-        else:
+        elif 'simulation' in data:
             encoding_size = 10
             encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device)
+        elif 'har' in data:
+            encoding_size = 10
+            encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=10, device=device)
         ds_estimator = torch.nn.Linear(encoder.encoding_size, encoder.encoding_size)
         auto_regressor = torch.nn.GRU(input_size=encoding_size, hidden_size=encoding_size, batch_first=True)
         params = list(ds_estimator.parameters()) + list(encoder.parameters()) + list(auto_regressor.parameters())
@@ -134,11 +141,10 @@ def main(is_train, data_type, lr,  cv):
             for cv_ind in range(cv):
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_cpc' % data_type,
                                   device=device, augment=100, cv=cv_ind, title='CPC')
-            # model_distribution(None, None, x_test, y_test, encoder, window_size, 'waveform', device)
             exp = WFClassificationExperiment(window_size=window_size)
             exp.run(data='%s_cpc'%data_type, n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
 
-    else:
+    elif data_type == 'simulation':
         path = './data/simulated_data/'
         window_size = 50
         encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device)
@@ -154,11 +160,42 @@ def main(is_train, data_type, lr,  cv):
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
                 y_test = pickle.load(f)
             for cv_ind in range(cv):
+                print('\n\nFold %d \n'%cv_ind)
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_cpc' % data_type,
                                   title='CPC', device=device, cv=cv_ind)
-            # model_distribution(x, y, x_test, y_test, encoder, window_size, 'simulation_cpc', device)
-            exp = ClassificationPerformanceExperiment(path='simulation_cpc')
-            exp.run(data='%s_cpc'%data_type, n_epochs=70, lr_e2e=0.01, lr_cls=0.001)
+                exp = ClassificationPerformanceExperiment(path='simulation_cpc', cv=cv_ind)
+                for lr in [0.001, 0.01, 0.1]:
+                    print('===> lr: ', lr)
+                    tnc_acc, tnc_auc, e2e_acc, e2e_auc = exp.run(data='%s_cpc'%data_type, n_epochs=50, lr_e2e=lr, lr_cls=lr)
+                    print('TNC acc: %.2f \t TNC auc: %.2f \t E2E acc: %.2f \t E2E auc: %.2f' % (
+                    tnc_acc, tnc_auc, e2e_acc, e2e_auc))
+
+    elif data_type == 'har':
+        window_size = 5
+        path = './data/HAR_data/'
+        encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=10, device=device)
+
+        if is_train:
+            with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+                x = pickle.load(f)
+            learn_encoder(x, window_size, n_epochs=200, lr=lr, decay=1e-4, n_size=15,
+                          data=data_type, device=device, n_cross_val=cv)
+        else:
+            with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+                x_test = pickle.load(f)
+            with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
+                y_test = pickle.load(f)
+
+            for cv_ind in range(cv):
+                print('\n\nFold %d \n'%cv_ind)
+                plot_distribution(x_test, y_test, encoder, window_size=window_size, path='har_cpc',
+                                  device=device, augment=100, cv=cv_ind, title='CPC')
+                exp = ClassificationPerformanceExperiment(n_states=6, encoding_size=10, path='har_cpc', hidden_size=100,
+                                                        in_channel=561, window_size=5, cv=cv_ind)
+                for lr in [0.001, 0.01, 0.1]:
+                    print('===> lr: ', lr)
+                    tnc_acc, tnc_auc, e2e_acc, e2e_auc = exp.run(data='har', n_epochs=50, lr_e2e=lr, lr_cls=lr)
+                    print('TNC acc: %.2f \t TNC auc: %.2f \t E2E acc: %.2f \t E2E auc: %.2f'%(tnc_acc, tnc_auc, e2e_acc, e2e_auc))
 
 
 if __name__=="__main__":

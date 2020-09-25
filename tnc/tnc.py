@@ -1,20 +1,28 @@
+"""
+Temporal Neighborhood Coding (TNC) for unsupervised learning representation of non-stationary time series
+"""
+
 import torch
 from torch.utils import data
 import matplotlib.pyplot as plt
 import argparse
-import pandas as pd
+import math
 import seaborn as sns; sns.set()
+import sys
 
 import numpy as np
 import pickle
 import os
 import random
 
-from tnc.models import RnnEncoder, MimicEncoder, WFEncoder
-from tnc.utils import PatientData, plot_distribution, model_distribution, track_encoding
+from tnc.models import RnnEncoder, WFEncoder
+from tnc.utils import plot_distribution, track_encoding
 from tnc.evaluations import WFClassificationExperiment, ClassificationPerformanceExperiment
-from sklearn.model_selection import KFold
+from statsmodels.tsa.stattools import adfuller
 
+if not sys.warnoptions:
+    import warnings
+    warnings.simplefilter("ignore")
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
@@ -44,46 +52,51 @@ class Discriminator(torch.nn.Module):
 
 
 class TNCDataset(data.Dataset):
-    def __init__(self, x, mc_sample_size, epsilon, delta, window_size, augmentation, state=None):
+    def __init__(self, x, mc_sample_size, window_size, augmentation, state=None, adf=False):
         super(TNCDataset, self).__init__()
         self.time_series = x
         self.T = x.shape[-1]
-        self.epsilon = epsilon
-        self.delta = delta
         self.window_size = window_size
         self.sliding_gap = int(window_size*25.2)
         self.window_per_sample = (self.T-2*self.window_size)//self.sliding_gap
         self.mc_sample_size = mc_sample_size
         self.state = state
         self.augmentation = augmentation
+        self.adf = adf
 
     def __len__(self):
         return len(self.time_series)*self.augmentation
 
     def __getitem__(self, ind):
         ind = ind%len(self.time_series)
-        t = np.random.randint(self.window_size+2*self.epsilon, self.T-self.window_size-2*self.epsilon)
+        t = np.random.randint(2*self.window_size, self.T-2*self.window_size)
         x_t = self.time_series[ind][:,t-self.window_size//2:t+self.window_size//2]  # TODO: add padding for windows that are smaller
+        plt.savefig('./plots/%s_seasonal.png'%ind)
         X_close = self._find_neighours(self.time_series[ind], t)
         X_distant = self._find_non_neighours(self.time_series[ind], t)
-
-        # i = ind//self.window_per_sample
-        # t = ind%self.window_per_sample + self.window_size//2 + np.random.randint(0,self.window_size//2)
-        # x_t = self.time_series[i][:, t - self.window_size // 2:t + self.window_size // 2]
-        # X_close = self._find_neighours(self.time_series[i], t)
-        # X_distant = self._find_non_neighours(self.time_series[i], t)
 
         if self.state is None:
             y_t = -1
         else:
-            y_t = np.round(np.mean(self.state[ind][t-self.window_size//2:t+self.window_size//2]))# self.state[t] # TODO: Maybe change this to the average of states within the window
+            y_t = torch.round(torch.mean(self.state[ind][t-self.window_size//2:t+self.window_size//2]))# self.state[t] # TODO: Maybe change this to the average of states within the window
         return x_t, X_close, X_distant, y_t
 
     def _find_neighours(self, x, t):
         T = self.time_series.shape[-1]
-        ## Random within a distance
-        # t_p = np.random.randint(max(0, t - self.epsilon - self.window_size), min(t + self.window_size + self.epsilon, T - self.window_size), self.mc_sample_size)
-        # t_p = np.random.randint(max(0, t - self.epsilon), min(t + self.window_size + self.epsilon, T - self.window_size), self.mc_sample_size)
+        if self.adf:
+            gap = self.window_size
+            corr = []
+            for w_t in range(self.window_size,4*self.window_size, gap):
+                try:
+                    p_val = 0
+                    for f in range(x.shape[-2]):
+                        p = adfuller(np.array(x[f, max(0,t - w_t):min(x.shape[-1], t + w_t)].reshape(-1, )))[1]
+                        p_val += 0.01 if math.isnan(p) else p
+                    corr.append(p_val/x.shape[-2])
+                except:
+                    corr.append(0.6)
+            self.epsilon = len(corr) if len(np.where(np.array(corr) >= 0.01)[0])==0 else (np.where(np.array(corr) >= 0.01)[0][0] +1)
+            self.delta = 4*self.epsilon*self.window_size
 
         ## Random from a Gaussian
         t_p = [int(t+np.random.randn()*self.epsilon*self.window_size) for _ in range(self.mc_sample_size)]
@@ -101,7 +114,7 @@ class TNCDataset(data.Dataset):
         return x_n
 
 
-def epoch_run(loader, disc_model, encoder, device, optimizer=None, train=True):
+def epoch_run(loader, disc_model, encoder, device, w=0, optimizer=None, train=True):
     if train:
         encoder.train()
         disc_model.train()
@@ -132,7 +145,8 @@ def epoch_run(loader, disc_model, encoder, device, optimizer=None, train=True):
         d_n = disc_model(z_t, z_n)
         p_loss = loss_fn(d_p, neighbors)
         n_loss = loss_fn(d_n, non_neighbors)
-        loss = (p_loss + 0.7*n_loss)/1.7
+        n_loss_u = loss_fn(d_n, neighbors)
+        loss = (p_loss + w*n_loss_u + (1-w)*n_loss)/2
 
         if train:
             optimizer.zero_grad()
@@ -146,14 +160,21 @@ def epoch_run(loader, disc_model, encoder, device, optimizer=None, train=True):
     return epoch_loss/batch_count, epoch_acc/batch_count
 
 
-def learn_encoder(x, encoder, window_size, lr=0.001, decay=0.005, epsilon=20, delta=150, mc_sample_size=20,
+def learn_encoder(x, encoder, window_size, w, lr=0.001, decay=0.005, mc_sample_size=20,
                   n_epochs=100, path='simulation', device='cpu', augmentation=1, n_cross_val=1):
     accuracies = []
     for cv in range(n_cross_val):
         if 'waveform' in path:
             encoder = WFEncoder(encoding_size=64).to(device)
-        else:
+            batch_size = 5
+        elif 'simulation' in path:
             encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device)
+            batch_size = 10
+        elif 'har' in path:
+            encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=10, device=device)
+            batch_size = 10
+        if not os.path.exists('./ckpt/%s'%path):
+            os.mkdir('./ckpt/%s'%path)
         disc_model = Discriminator(encoder.encoding_size, device)
         params = list(disc_model.parameters()) + list(encoder.parameters())
         optimizer = torch.optim.Adam(params, lr=lr, weight_decay=decay)
@@ -164,25 +185,23 @@ def learn_encoder(x, encoder, window_size, lr=0.001, decay=0.005, epsilon=20, de
         performance = []
         best_acc = 0
         best_loss = np.inf
-        for epoch in range(n_epochs):
 
-            trainset = TNCDataset(x=torch.Tensor(x[:n_train]), mc_sample_size=mc_sample_size, epsilon=epsilon, delta=delta,
+        for epoch in range(n_epochs+1):
+            trainset = TNCDataset(x=torch.Tensor(x[:n_train]), mc_sample_size=mc_sample_size,
+                                  window_size=window_size, augmentation=augmentation, adf=True)
+            train_loader = data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=3)
+            validset = TNCDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=mc_sample_size, adf=True,
                                   window_size=window_size, augmentation=augmentation)
-            print('Train: ', len(trainset))
-            train_loader = data.DataLoader(trainset, batch_size=5, shuffle=True, num_workers=3)
-            validset = TNCDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=mc_sample_size,
-                                  epsilon=epsilon, delta=delta, window_size=window_size, augmentation=augmentation)
-            print('Validation: ', len(validset))
-            valid_loader = data.DataLoader(validset, batch_size=5, shuffle=True)
+            valid_loader = data.DataLoader(validset, batch_size=batch_size, shuffle=True)
 
-            epoch_loss, epoch_acc = epoch_run(train_loader, disc_model, encoder, optimizer=optimizer, train=True, device=device)
-            test_loss, test_acc = epoch_run(valid_loader, disc_model, encoder, train=False,  device=device)
+            epoch_loss, epoch_acc = epoch_run(train_loader, disc_model, encoder, optimizer=optimizer,
+                                              w=w, train=True, device=device)
+            test_loss, test_acc = epoch_run(valid_loader, disc_model, encoder, train=False, w=w, device=device)
             performance.append((epoch_loss, test_loss, epoch_acc, test_acc))
-            print('Epoch %d Loss =====> Training Loss: %.5f \t Training Accuracy: %.5f \t Test Loss: %.5f \t Test Accuracy: %.5f'
-                  % (epoch, epoch_loss, epoch_acc, test_loss, test_acc))
-            # if best_acc<test_acc:
-            if best_loss > test_loss:
-                print('Saving a new best')
+            if epoch%10 == 0:
+                print('(cv:%s)Epoch %d Loss =====> Training Loss: %.5f \t Training Accuracy: %.5f \t Test Loss: %.5f \t Test Accuracy: %.5f'
+                      % (cv, epoch, epoch_loss, epoch_acc, test_loss, test_acc))
+            if best_loss > test_loss or path=='har':
                 best_acc = test_acc
                 best_loss = test_loss
                 state = {
@@ -218,14 +237,13 @@ def learn_encoder(x, encoder, window_size, lr=0.001, decay=0.005, epsilon=20, de
     return encoder
 
 
-def main(is_train, data_type, cv):
+def main(is_train, data_type, cv, w):
     if not os.path.exists("./plots"):
         os.mkdir("./plots")
     if not os.path.exists("./ckpt/"):
         os.mkdir("./ckpt/")
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    if data_type=='simulation':
+    if data_type == 'simulation':
         window_size = 50
         encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device)
         path = './data/simulated_data/'
@@ -233,13 +251,11 @@ def main(is_train, data_type, cv):
         if is_train:
             with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
                 x = pickle.load(f)
-            with open(os.path.join(path, 'state_train.pkl'), 'rb') as f:
-                y = pickle.load(f)
-
-            track_encoding(x[0,:,400:], y[0,400:], encoder, window_size, 'simulation')
-            learn_encoder(x, encoder, lr=1e-3, decay=1e-5, window_size=window_size, epsilon=2., delta=300, n_epochs=80,
-                          mc_sample_size=20, path='simulation', device=device, augmentation=5, n_cross_val=cv)
+            # track_encoding(x[0,:,400:], y[0,400:], encoder, window_size, 'simulation')
+            learn_encoder(x, encoder, w=w, lr=1e-3, decay=1e-5, window_size=window_size, n_epochs=100,
+                          mc_sample_size=40, path='simulation', device=device, augmentation=5, n_cross_val=cv)
         else:
+            # Plot the distribution of the encodings and use the learnt encoders to train a downstream classifier
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
                 x_test = pickle.load(f)
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
@@ -247,9 +263,12 @@ def main(is_train, data_type, cv):
             for cv_ind in range(cv):
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='simulation',
                                   title='TNC', device=device, cv=cv_ind)
-            # model_distribution(x, y, x_test, y_test, encoder, window_size, 'simulation', device)
-            exp = ClassificationPerformanceExperiment()
-            exp.run(data='simulation', n_epochs=70, lr_e2e=0.01, lr_cls=0.001)
+                exp = ClassificationPerformanceExperiment(cv=cv_ind)
+                print('\n\nFold %d \n'%cv_ind)
+                for lr in [0.001, 0.01, 0.1]:
+                    print('===> lr: ', lr)
+                    tnc_acc, tnc_auc, e2e_acc, e2e_auc = exp.run(data='simulation', n_epochs=50, lr_e2e=lr, lr_cls=lr)
+                    print('TNC acc: %.2f \t TNC auc: %.2f \t E2E acc: %.2f \t E2E auc: %.2f'%(tnc_acc, tnc_auc, e2e_acc, e2e_auc))
 
     if data_type == 'waveform':
         window_size = 2500
@@ -261,8 +280,9 @@ def main(is_train, data_type, cv):
                 x = pickle.load(f)
             T = x.shape[-1]
             x_window = np.concatenate(np.split(x[:, :, :T // 5 * 5], 5, -1), 0)
-            learn_encoder(torch.Tensor(x_window), encoder, lr=1e-5, decay=1e-3, n_epochs=200, window_size=window_size, delta=400000,
-                          epsilon=3, path='waveform', mc_sample_size=10, device=device, augmentation=5, n_cross_val=cv)
+            learn_encoder(torch.Tensor(x_window), encoder, w=w, lr=1e-5, decay=1e-3, n_epochs=100, window_size=window_size,
+                          path='waveform', mc_sample_size=15, device=device, augmentation=7, n_cross_val=cv)
+
         else:
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
                 x_test = pickle.load(f)
@@ -271,18 +291,46 @@ def main(is_train, data_type, cv):
             for cv_ind in range(cv):
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform',
                                   device=device, augment=100, cv=cv_ind, title='TNC')
-            # model_distribution(None, None, x_test, y_test, encoder, window_size, 'waveform', device)
             exp = WFClassificationExperiment(window_size=window_size)
             exp.run(data='waveform', n_epochs=5, lr_e2e=0.001, lr_cls=0.001)
 
+    if data_type == 'har':
+        window_size = 5
+        path = './data/HAR_data/'
+        encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=10, device=device)
 
-if __name__=='__main__':
+        if is_train:
+            with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+                x = pickle.load(f)
+            learn_encoder(torch.Tensor(x), encoder, w=w, lr=1e-3, decay=1e-5, n_epochs=140, window_size=window_size,
+                          path='har', mc_sample_size=20, device=device, augmentation=5, n_cross_val=cv)
+
+        else:
+            with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+                x_test = pickle.load(f)
+            with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
+                y_test = pickle.load(f)
+            for cv_ind in range(cv):
+                plot_distribution(x_test, y_test, encoder, window_size=window_size, path='har', device=device,
+                                  augment=100, cv=cv_ind, title='TNC')
+                exp = ClassificationPerformanceExperiment(n_states=6, encoding_size=10, path='har', hidden_size=100,
+                                                          in_channel=561, window_size=5, cv=cv_ind)
+                print('\n\nFold %d \n'%cv_ind)
+                for lr in [0.001, 0.01, 0.1]:
+                    print('===> lr: ', lr)
+                    tnc_acc, tnc_auc, e2e_acc, e2e_auc = exp.run(data='har', n_epochs=50, lr_e2e=lr, lr_cls=lr)
+                    print('TNC acc: %.2f \t TNC auc: %.2f \t E2E acc: %.2f \t E2E auc: %.2f'%(tnc_acc, tnc_auc, e2e_acc, e2e_auc))
+
+
+if __name__ == '__main__':
     random.seed(1234)
     parser = argparse.ArgumentParser(description='Run TNC')
     parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--cv', type=int, default=1)
+    parser.add_argument('--w', type=float, default=0.05)
     parser.add_argument('--train', action='store_true')
     args = parser.parse_args()
-    main(args.train, args.data, args.cv)
+    print('TNC model with w=%f'%args.w)
+    main(args.train, args.data, args.cv, args.w)
 
 

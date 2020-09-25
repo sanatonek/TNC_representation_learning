@@ -6,8 +6,6 @@ import random
 import argparse
 
 from tnc.models import RnnEncoder, StateClassifier, E2EStateClassifier, WFEncoder, WFClassifier
-from tnc.utils import create_simulated_dataset
-from baselines.knn import KnnDtw
 from sklearn.metrics import roc_auc_score, confusion_matrix, accuracy_score
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -128,7 +126,6 @@ def train(train_loader, valid_loader, classifier, lr, data_type, encoder=None, n
 
 
 def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
-    # kf = KFold(n_splits=2)
     # Load data
     with open(os.path.join(data_path, 'x_train.pkl'), 'rb') as f:
         x = pickle.load(f)
@@ -168,11 +165,6 @@ def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
 
         x_chopped, y_chopped = X_train, y_train
         x_chopped_test, y_chopped_test = X_test, y_test
-        # print('Distribution of Traning and Test set')
-        # print('Train: ', (y_chopped.cpu().numpy()==0).astype(int).sum(), (y_chopped.cpu().numpy()==1).astype(int).sum(),
-        #       (y_chopped.cpu().numpy()==2).astype(int).sum(), (y_chopped.cpu().numpy()==3).astype(int).sum())
-        # print('Test: ', (y_chopped_test.cpu().numpy()==0).astype(int).sum(), (y_chopped_test.cpu().numpy()==1).astype(int).sum(),
-        #       (y_chopped_test.cpu().numpy()==2).astype(int).sum(), (y_chopped_test.cpu().numpy()==3).astype(int).sum())
 
 
         trainset = torch.utils.data.TensorDataset(X_train, y_train)
@@ -194,7 +186,7 @@ def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
             tnc_checkpoint = torch.load('./ckpt/waveform/checkpoint_%d.pth.tar'%cv)
             tnc_encoder.load_state_dict(tnc_checkpoint['encoder_state_dict'])
             tnc_classifier = WFClassifier(encoding_size=encoding_size, output_size=4)
-            tcl_model = torch.nn.Sequential(tnc_encoder, tnc_classifier).to(device)
+            tnc_model = torch.nn.Sequential(tnc_encoder, tnc_classifier).to(device)
 
             cpc_encoder = WFEncoder(encoding_size=encoding_size).to(device)
             if not os.path.exists('./ckpt/waveform_cpc/checkpoint_%d.pth.tar'%cv):
@@ -215,50 +207,57 @@ def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
             n_epoch_e2e = 5
 
         elif data == 'simulation':
-            # m_1 = KnnDtw()
-            # m_1.fit(X_train[:, 0, :], y_train)
-            # m_2 = KnnDtw()
-            # m_2.fit(X_train[:, 1, :], y_train)
-            # m_3 = KnnDtw()
-            # m_3.fit(X_train[:, 2, :], y_train)
             encoding_size = 10
-
             e2e_model = E2EStateClassifier(hidden_size=100, in_channel=3, encoding_size=encoding_size,
                                            output_size=4, device=device)
 
             tnc_encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=encoding_size, device=device)
-            tnc_checkpoint = torch.load('./ckpt/simulation/checkpoint.pth.tar')
+            tnc_checkpoint = torch.load('./ckpt/simulation/checkpoint_%d.pth.tar'%cv)
             tnc_encoder.load_state_dict(tnc_checkpoint['encoder_state_dict'])
             tnc_classifier = StateClassifier(input_size=encoding_size, output_size=4).to(device)
-            # tcl_model = torch.nn.Sequential(tcl_encoder, tcl_classifier).to(device)
 
             cpc_encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=encoding_size, device=device)
-            cpc_checkpoint = torch.load('./ckpt/simulation_cpc/checkpoint.pth.tar')
+            cpc_checkpoint = torch.load('./ckpt/simulation_cpc/checkpoint_%d.pth.tar'%cv)
             cpc_encoder.load_state_dict(cpc_checkpoint['encoder_state_dict'])
             cpc_classifier = StateClassifier(input_size=encoding_size, output_size=4).to(device)
-            # cpc_model = torch.nn.Sequential(cpc_encoder, cpc_classifier).to(device)
 
             trip_encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=encoding_size, device=device)
-            trip_checkpoint = torch.load('./ckpt/simulation_trip/checkpoint.pth.tar')
+            trip_checkpoint = torch.load('./ckpt/simulation_trip/checkpoint_%d.pth.tar'%cv)
             trip_encoder.load_state_dict(trip_checkpoint['encoder_state_dict'])
             trip_classifier = StateClassifier(input_size=encoding_size, output_size=4).to(device)
-            # trip_model = torch.nn.Sequential(trip_encoder, trip_classifier).to(device)
             n_epochs = 30
             n_epoch_e2e = 100
 
+        elif data == 'har':
+            encoding_size = 10
+            e2e_model = E2EStateClassifier(hidden_size=100, in_channel=561, encoding_size=encoding_size,
+                                           output_size=6, device=device)
+
+            tnc_encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=encoding_size, device=device)
+            tnc_checkpoint = torch.load('./ckpt/har/checkpoint_%d.pth.tar'%cv)
+            tnc_encoder.load_state_dict(tnc_checkpoint['encoder_state_dict'])
+            tnc_classifier = StateClassifier(input_size=encoding_size, output_size=6).to(device)
+
+            cpc_encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=encoding_size, device=device)
+            cpc_checkpoint = torch.load('./ckpt/har_cpc/checkpoint_%d.pth.tar'%cv)
+            cpc_encoder.load_state_dict(cpc_checkpoint['encoder_state_dict'])
+            cpc_classifier = StateClassifier(input_size=encoding_size, output_size=6).to(device)
+
+            trip_encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=encoding_size, device=device)
+            trip_checkpoint = torch.load('./ckpt/har_trip/checkpoint_%d.pth.tar'%cv)
+            trip_encoder.load_state_dict(trip_checkpoint['encoder_state_dict'])
+            trip_classifier = StateClassifier(input_size=encoding_size, output_size=6).to(device)
+            n_epochs = 100
+            n_epoch_e2e = 100
 
         # Train the model
-        # e2e_optimizer = torch.optim.Adam(e2e_model.parameters(), lr=e2e_lr)
-        # tnc_optimizer = torch.optim.Adam(tnc_classifier.parameters(), lr=tcl_lr)
-        # cpc_optimizer = torch.optim.Adam(cpc_classifier.parameters(), lr=cpc_lr)
-        # trip_optimizer = torch.optim.Adam(trip_classifier.parameters(), lr=trip_lr)
         # ***** E2E *****
         best_acc_e2e, best_auc_e2e = train(train_loader, valid_loader, e2e_model, e2e_lr,
                              data_type=data, n_epochs=n_epoch_e2e, type='e2e', cv=cv)
         print('E2E: ', best_acc_e2e, best_auc_e2e)
         # ***** TNC *****
         best_acc_tnc, best_auc_tnc = train(train_loader, valid_loader, tnc_classifier, tcl_lr,
-                                           encoder=tnc_encoder, data_type=data, n_epochs=n_epochs, type='tcl', cv=cv)
+                                           encoder=tnc_encoder, data_type=data, n_epochs=n_epochs, type='tnc', cv=cv)
         print('TNC: ', best_acc_tnc, best_auc_tnc)
         # ***** CPC *****
         best_acc_cpc, best_auc_cpc = train(train_loader, valid_loader, cpc_classifier, cpc_lr,
@@ -270,20 +269,20 @@ def run_test(data, e2e_lr, tcl_lr, cpc_lr, trip_lr, data_path, window_size):
         print('TRIP: ', best_acc_trip, best_auc_trip)
 
         # Evaluate performance on Held out test
-        # checkpoint = torch.load('./ckpt/classifier_test/%s/e2e_checkpoint_%d.pth.tar'%(data, cv))
-        # e2e_model.load_state_dict(checkpoint['state_dict'])
-        # checkpoint = torch.load('./ckpt/classifier_test/%s/tcl_checkpoint_%d.pth.tar'%(data, cv))
-        # tcl_model.load_state_dict(checkpoint['state_dict'])
-        # checkpoint = torch.load('./ckpt/classifier_test/%s/cpc_checkpoint_%d.pth.tar'%(data, cv))
-        # cpc_model.load_state_dict(checkpoint['state_dict'])
-        # checkpoint = torch.load('./ckpt/classifier_test/%s/trip_checkpoint_%d.pth.tar'%(data, cv))
-        # trip_model.load_state_dict(checkpoint['state_dict'])
-        # torch.cuda.empty_cache()
-        # print('\nPerformances:')
-        # _, e2e_acc, e2e_auc, _ = epoch_run(e2e_model, test_loader, train=False)
-        # _, tcl_acc, tcl_auc, _ = epoch_run(tcl_model, test_loader, train=False)
-        # _, cpc_acc, cpc_auc, _ = epoch_run(cpc_model, test_loader, train=False)
-        # _, trip_acc, trip_auc, _ = epoch_run(trip_model, test_loader, train=False)
+        checkpoint = torch.load('./ckpt/classifier_test/%s/e2e_checkpoint_%d.pth.tar'%(data, cv))
+        e2e_model.load_state_dict(checkpoint['state_dict'])
+        checkpoint = torch.load('./ckpt/classifier_test/%s/tnc_checkpoint_%d.pth.tar'%(data, cv))
+        tnc_model.load_state_dict(checkpoint['state_dict'])
+        checkpoint = torch.load('./ckpt/classifier_test/%s/cpc_checkpoint_%d.pth.tar'%(data, cv))
+        cpc_model.load_state_dict(checkpoint['state_dict'])
+        checkpoint = torch.load('./ckpt/classifier_test/%s/trip_checkpoint_%d.pth.tar'%(data, cv))
+        trip_model.load_state_dict(checkpoint['state_dict'])
+        torch.cuda.empty_cache()
+        print('\nPerformances:')
+        _, best_acc_e2e, best_auc_e2e, _ = epoch_run(e2e_model, test_loader, train=False)
+        _, best_acc_tnc, best_auc_tnc, _ = epoch_run(tnc_model, test_loader, train=False)
+        _, best_acc_cpc, best_auc_cpc, _ = epoch_run(cpc_model, test_loader, train=False)
+        _, best_acc_trip, best_auc_trip, _ = epoch_run(trip_model, test_loader, train=False)
 
         e2e_accs.append(best_acc_e2e)
         e2e_aucs.append(best_auc_e2e)
@@ -323,10 +322,12 @@ if __name__=='__main__':
     f = open("./outputs/%s_classifiers.txt"%args.data, "w")
     f.close()
     if args.data=='simulation':
-        run_test(data='simulation', e2e_lr=0.0001, tcl_lr=0.001, cpc_lr=0.001, trip_lr=0.001,
+        run_test(data='simulation', e2e_lr=0.01, tcl_lr=0.01, cpc_lr=0.1, trip_lr=0.1,
                  data_path='./data/simulated_data/', window_size=50)
     elif args.data=='waveform':
         run_test(data='waveform', e2e_lr=0.0001, tcl_lr=0.01, cpc_lr=0.001, trip_lr=0.001,
                  data_path='./data/waveform_data/processed', window_size=2500)
-
+    elif args.data=='har':
+        run_test(data='har', e2e_lr=0.001, tcl_lr=0.01, cpc_lr=0.1, trip_lr=0.1,
+                 data_path='./data/HAR_data/', window_size=5)
 

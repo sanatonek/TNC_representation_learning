@@ -10,60 +10,8 @@ import matplotlib.transforms as transforms
 from torch.utils import data
 import torch
 from sklearn.manifold import TSNE
-from sklearn.mixture import BayesianGaussianMixture as DPGMM
 from sklearn.decomposition import PCA
-from sklearn.metrics import silhouette_score, accuracy_score
 from sklearn.neighbors import KNeighborsClassifier
-
-
-class PatientData():
-    """Dataset of patient vitals, demographics and lab results
-    Args:
-        root: Root directory of the pickled dataset
-        train_ratio: train/test ratio
-        shuffle: Shuffle dataset before separating train/test
-        transform: Preprocessing transformation on the dataset
-    """
-    def __init__(self, path='./data/mimic_data', train_ratio=0.8, shuffle=False, random_seed=1234):
-        self.data_dir = os.path.join(path, 'patient_vital_preprocessed.pkl')
-        self.train_ratio = train_ratio
-        self.random_seed = np.random.seed(random_seed)
-
-        if not os.path.exists(self.data_dir):
-            raise RuntimeError('Dataset not found')
-        with open(self.data_dir, 'rb') as f:
-            self.data = pickle.load(f)
-        with open(os.path.join(path,'patient_interventions.pkl'), 'rb') as f:
-            self.intervention = pickle.load(f)
-        if shuffle:
-            inds = np.arange(len(self.data))
-            np.random.shuffle(inds)
-            self.data = self.data[inds]
-            self.intervention = self.intervention[inds,:,:]
-        self.feature_size = len(self.data[0][0])
-        self.n_train = int(len(self.data) * self.train_ratio)
-        self.n_test = len(self.data) - self.n_train
-        self.train_data = np.array([x for (x, y, z) in self.data[0:self.n_train]])
-        self.test_data = np.array([x for (x, y, z) in self.data[self.n_train:]])
-        self.train_label = np.array([y for (x, y, z) in self.data[0:self.n_train]])
-        self.test_label = np.array([y for (x, y, z) in self.data[self.n_train:]])
-        self.train_missing = np.array([np.mean(z) for (x, y, z) in self.data[0:self.n_train]])
-        self.test_missing = np.array([np.mean(z) for (x, y, z) in self.data[self.n_train:]])
-        self.train_intervention = self.intervention[0:self.n_train,:,:]
-        self.test_intervention = self.intervention[self.n_train:,:,:]
-        self._normalize()
-
-    def _normalize(self):
-        """ Calculate the mean and std of each feature from the training set
-        """
-        feature_means = np.mean(self.train_data, axis=(0, 2))
-        feature_std = np.std(self.train_data, axis=(0, 2))
-        np.seterr(divide='ignore', invalid='ignore')
-        train_data_n = self.train_data - feature_means[np.newaxis, :, np.newaxis] / \
-                       np.where(feature_std == 0, 1, feature_std)[np.newaxis, :, np.newaxis]
-        test_data_n = self.test_data - feature_means[np.newaxis, :, np.newaxis] / \
-                      np.where(feature_std == 0, 1, feature_std)[np.newaxis, :, np.newaxis]
-        self.train_data, self.test_data = train_data_n, test_data_n
 
 
 def create_simulated_dataset(window_size=50, path='./data/simulated_data/', batch_size=100):
@@ -82,18 +30,17 @@ def create_simulated_dataset(window_size=50, path='./data/simulated_data/', batc
 
     datasets = []
     for set in [(x_train, y_train, n_train), (x_test, y_test, n_test), (x_valid, y_valid, n_valid)]:
-        inds = np.random.randint(0, x.shape[-1] - window_size, set[2] * 4)
-        windows = np.array([set[0][int(i % set[2]), :, ind:ind + window_size] for i, ind in enumerate(inds)])
-        labels = [np.round(np.mean(set[1][i % set[2], ind:ind + window_size], axis=-1)) for i, ind in enumerate(inds)]
+        T = set[0].shape[-1]
+        windows = np.split(set[0][:, :, :window_size * (T // window_size)], (T // window_size), -1)
+        windows = np.concatenate(windows, 0)
+        labels = np.split(set[1][:, :window_size * (T // window_size)], (T // window_size), -1)
+        labels = np.round(np.mean(np.concatenate(labels, 0), -1))
         datasets.append(data.TensorDataset(torch.Tensor(windows), torch.Tensor(labels)))
 
     trainset, testset, validset = datasets[0], datasets[1], datasets[2]
-    train_loader = data.DataLoader(trainset, batch_size=batch_size, shuffle=True, sampler=None, batch_sampler=None,
-                                   num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
-    valid_loader = data.DataLoader(validset, batch_size=batch_size, shuffle=True, sampler=None, batch_sampler=None,
-                                   num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
-    test_loader = data.DataLoader(testset, batch_size=batch_size, shuffle=True, sampler=None, batch_sampler=None,
-                                   num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
+    train_loader = data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
+    valid_loader = data.DataLoader(validset, batch_size=batch_size, shuffle=True)
+    test_loader = data.DataLoader(testset, batch_size=batch_size, shuffle=True)
 
     return train_loader, valid_loader, test_loader
 
@@ -117,10 +64,7 @@ def track_encoding(sample, label, encoder, window_size, path, sliding_gap=5):
     f, axs = plt.subplots(2)#, gridspec_kw={'height_ratios': [1, 2]})
     f.set_figheight(10)
     f.set_figwidth(25)
-    # axs[0].plot(sample[0])
     axs[0].set_title('Time series Sample Trajectory', fontsize=34)
-    # axs[0].plot(sample[1])
-    # axs[0].plot(sample[2])
     sns.lineplot(np.arange(sample.shape[1]), sample[0], ax=axs[0])
     sns.lineplot(np.arange(sample.shape[1]), sample[1], ax=axs[0])
     sns.lineplot(np.arange(sample.shape[1]), sample[2], ax=axs[0])
@@ -172,8 +116,6 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, title=
                      enumerate(inds)]
     encodings = encoder(torch.Tensor(windows).to(device))
 
-    s_score = silhouette_score(encodings.detach().cpu().numpy(), np.array(windows_state))
-
     tsne = TSNE(n_components=2)
     embedding = tsne.fit_transform(encodings.detach().cpu().numpy())
     # pca = PCA(n_components=2)
@@ -200,17 +142,6 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, title=
     ax.set_title("Encodings Distribution using %s"%title)
     sns.scatterplot(x="f1", y="f2", data=df_encoding, hue="state")
     # sns.jointplot(x="f1", y="f2", data=df_encoding, kind="kde", hue='state')
-
-    from sklearn.mixture import GaussianMixture
-    # dpgmm = DPGMM(10)
-    # # dpgmm = GaussianMixture(4)
-    # dpgmm.fit(embedding)
-    # print('Number of components: ', dpgmm.n_components)
-    # for i,n in enumerate(range(dpgmm.n_components)):
-    #     mu = dpgmm.means_[i]
-    #     sigma = dpgmm.covariances_[i]
-    #     confidence_ellipse(mu, sigma, ax)
-    #     ax.scatter(mu[0], mu[1], c='navy', s=3)
     plt.savefig(os.path.join("./plots/%s"%path, "encoding_distribution_%d.pdf"%cv))
 
 
@@ -223,7 +154,6 @@ def model_distribution(x_train, y_train, x_test, y_test, encoder, window_size, p
     augment = 100
 
     # inds = np.random.randint(0, x_train.shape[-1] - window_size, n_train * 20)
-
     # windows = np.array([x_train[int(i % n_train), :, ind:ind + window_size] for i, ind in enumerate(inds)])
     # windows_label = [np.round(np.mean(y_train[i % n_train, ind:ind + window_size], axis=-1))
     #                  for i, ind in enumerate(inds)]
@@ -231,11 +161,6 @@ def model_distribution(x_train, y_train, x_test, y_test, encoder, window_size, p
     x_window_test = np.array([x_test[int(i % n_test), :, ind:ind + window_size] for i, ind in enumerate(inds)])
     y_window_test = np.array([np.round(np.mean(y_test[i % n_test, ind:ind + window_size], axis=-1)) for i, ind in
                      enumerate(inds)])
-    # T = x_test.shape[-1]
-    # x_window_test = np.split(x_test[:, :, :window_size * (T // window_size)], (T // window_size), -1)
-    # y_window_test = np.split(y_test[:, :window_size * (T // window_size)], (T // window_size), -1)
-    # x_window_test = torch.Tensor(np.concatenate(x_window_test, 0))
-    # y_window_test = np.round(np.mean(np.concatenate(y_window_test, 0), -1))
     train_count = []
     if 'waveform' in path:
         encoder.to('cpu')
@@ -243,15 +168,6 @@ def model_distribution(x_train, y_train, x_test, y_test, encoder, window_size, p
     else:
         encoder.to(device)
         x_window_test = torch.Tensor(x_window_test).to(device)
-
-    # trainset = data.TensorDataset(torch.Tensor(windows), torch.Tensor(windows_label))
-    # train_loader = data.DataLoader(trainset, batch_size=10, shuffle=True, sampler=None, batch_sampler=None,
-    #                                num_workers=0, collate_fn=None, pin_memory=False, drop_last=False)
-    # encodings = []
-    # for x,_ in train_loader:
-    #     x = x.to(device)
-    #     encodings.append(encoder(x).detach().cpu().numpy())
-    # encodings = np.concatenate(encodings, 0)
 
     encodings_test = encoder(x_window_test).detach().cpu().numpy()
 
@@ -262,9 +178,6 @@ def model_distribution(x_train, y_train, x_test, y_test, encoder, window_size, p
     neigh_ind_labels = [np.mean(y_window_test[ind]) for ind in (neigh_inds)]
     label_var = [(y_window_test[ind]==y_window_test[i]).sum() for i, ind in enumerate(neigh_inds)]
     dist = (label_var)/10
-    # print(neigh_ind_labels[:10])
-    # print(accuracy_score(y_window_test, preds))
-    # dist = np.linalg.norm(neigh_ind_labels - y_window_test)**2/len(y_window_test)
 
 
 def confidence_ellipse(mean, cov, ax, n_std=1.0, facecolor='none', **kwargs):
@@ -299,11 +212,6 @@ def trend_decompose(x, filter_size):
     df = pd.DataFrame(data=x.T)
     df = df.rolling(filter_size, win_type='triang').sum()
     s = df.loc[:, 0]
-    # print(s[:10])
-    # corr = []
-    # for i in range(0, 30, 5):
-    #     corr.append(np.abs(s.autocorr(i)))
-    # print(corr)
     f, axs = plt.subplots(1)
     print(s[filter_size-1:].shape, x[0,:-filter_size+1].shape)
     axs.plot(s[filter_size-1:], c='red')
