@@ -2,7 +2,7 @@
     Preprocessing module for MIT_BIH waveform database
     -------
     This module provides classes and methods for creating the MIT-BIH Atrial Fibrillation database.
-    By: Sebastian D. Goodfellow, Ph.D., 2018
+    Original source: https://github.com/Seb-Good/deepecg
     """
 
 # Compatibility imports
@@ -76,15 +76,6 @@ class AFDB(object):
         test_data = all_signals[n_train:]
         train_state = all_labels[:n_train]
         test_state = all_labels[n_train:]
-
-        # f, axes = plt.subplots(2, 1)
-        # f.set_figheight(2)
-        # f.set_figwidth(10)
-        # for i, ax in enumerate(axes):
-        #     ax.plot(train_data[10, i, :100000])
-        #     for t in range(train_data[:,:,:100000].shape[-1] - 1):
-        #         ax.axvspan(t, t + 1, color=['red', 'green', 'blue', 'yellow'][int(train_state[10, t])], alpha=0.05)
-        # plt.savefig("example_afib.pdf")
 
         # Normalize signals
         train_data_n, test_data_n = self._normalize(train_data, test_data)
