@@ -63,38 +63,47 @@ def track_encoding(sample, label, encoder, window_size, path, sliding_gap=5):
         encodings.insert(0, encodings[0])
     encodings = torch.stack(encodings, 0)
 
-    f, axs = plt.subplots(2)#, gridspec_kw={'height_ratios': [1, 2]})
-    f.set_figheight(10)
-    f.set_figwidth(27)
-
     if 'waveform' in path:
-        gs = gridspec.GridSpec(2, 1, height_ratios=[1, 5])
+        f, axs = plt.subplots(3)
+        f.set_figheight(12)
+        f.set_figwidth(27)
+        gs = gridspec.GridSpec(3, 1, height_ratios=[1, 1, 7])
         axs[0] = plt.subplot(gs[0])
         axs[1] = plt.subplot(gs[1])
+        axs[2] = plt.subplot(gs[2])
+        sns.lineplot(np.arange(0,sample.shape[1]/250, 1./250), sample[0], ax=axs[0])
+        sns.lineplot(np.arange(0,sample.shape[1]/250, 1./250), sample[1], ax=axs[1])
+        axs[1].margins(x=0)
+        axs[1].grid(False)
+        axs[1].xaxis.set_tick_params(labelsize=22)
+        axs[1].yaxis.set_tick_params(labelsize=22)
+
+    else:
+        f, axs = plt.subplots(2)  # , gridspec_kw={'height_ratios': [1, 2]})
+        f.set_figheight(10)
+        f.set_figwidth(27)
+        for feat in range(min(sample.shape[0], 5)):
+            sns.lineplot(np.arange(sample.shape[1]), sample[feat], ax=axs[0])
 
     axs[0].set_title('Time series Sample Trajectory', fontsize=30, fontweight='bold')
-    for feat in range(min(sample.shape[0], 5)):
-        sns.lineplot(np.arange(sample.shape[1]), sample[feat], ax=axs[0])
-    # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[0, :-window_size], ax=axs[0])
-    # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[1, :-window_size], ax=axs[0])
-    # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[2, :-window_size], ax=axs[0])
     axs[0].xaxis.set_tick_params(labelsize=22)
     axs[0].yaxis.set_tick_params(labelsize=22)
-    axs[1].xaxis.set_tick_params(labelsize=22)
-    axs[1].yaxis.set_tick_params(labelsize=22)
-    axs[1].set_ylabel('Encoding dimensions', fontsize=28)
+    axs[-1].xaxis.set_tick_params(labelsize=22)
+    axs[-1].yaxis.set_tick_params(labelsize=22)
+    axs[-1].set_ylabel('Encoding dimensions', fontsize=28)
     axs[0].margins(x=0)
     axs[0].grid(False)
     t_0 = 0
-    for t in range(1, label.shape[-1]):
-        if label[t]==label[t-1]:
-            continue
-        else:
-            axs[0].axvspan(t_0, min(t+1, label.shape[-1]-1), facecolor=['y', 'g', 'b', 'r', 'c', 'm'][int(label[t_0])], alpha=0.5)
-            t_0 = t
-    axs[0].axvspan(t_0, label.shape[-1]-1 , facecolor=['y', 'g', 'b', 'r'][int(label[t_0])], alpha=0.5)
-    axs[1].set_title('Encoding Trajectory', fontsize=30, fontweight='bold')
-    sns.heatmap(encodings.detach().cpu().numpy().T, cbar=False, linewidth=0.5, ax=axs[1], linewidths=0.05, xticklabels=False)
+    if not 'waveform' in path:
+        for t in range(1, label.shape[-1]):
+            if label[t]==label[t-1]:
+                continue
+            else:
+                axs[0].axvspan(t_0, min(t+1, label.shape[-1]-1), facecolor=['y', 'g', 'b', 'r', 'c', 'm'][int(label[t_0])], alpha=0.5)
+                t_0 = t
+        axs[0].axvspan(t_0, label.shape[-1]-1 , facecolor=['y', 'g', 'b', 'r'][int(label[t_0])], alpha=0.5)
+    axs[-1].set_title('Encoding Trajectory', fontsize=30, fontweight='bold')
+    sns.heatmap(encodings.detach().cpu().numpy().T, cbar=False, linewidth=0.5, ax=axs[-1], linewidths=0.05, xticklabels=False)
     f.tight_layout()
 
 
@@ -154,7 +163,10 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, title=
     fig, ax = plt.subplots()
     # plt.figure()
     ax.set_title("%s"%title, fontweight="bold", fontsize=18)
-    sns.scatterplot(x="f1", y="f2", data=df_encoding, hue="state")
+    if 'waveform' in path:
+        sns.scatterplot(x="f1", y="f2", data=df_encoding, hue="state", palette="deep")
+    else:
+        sns.scatterplot(x="f1", y="f2", data=df_encoding, hue="state")
     # sns.jointplot(x="f1", y="f2", data=df_encoding, kind="kde", hue='state')
     plt.savefig(os.path.join("./plots/%s"%path, "encoding_distribution_%d.pdf"%cv))
 
