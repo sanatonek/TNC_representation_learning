@@ -265,10 +265,10 @@ def main(is_train, data, cv):
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
                 y_test = pickle.load(f)
             for cv_ind in range(cv):
-                print('\n\nFold %d \n' % cv_ind)
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data,
                                   title='Triplet Loss', device=device, cv=cv_ind)
                 exp = ClassificationPerformanceExperiment(path='simulation_trip', cv=cv_ind)
+                # Run cross validation for classification
                 for lr in [0.001, 0.01, 0.1]:
                     print('===> lr: ', lr)
                     tnc_acc, tnc_auc, e2e_acc, e2e_auc = exp.run(data='simulation_trip', n_epochs=50, lr_e2e=lr, lr_cls=lr)
@@ -283,18 +283,18 @@ def main(is_train, data, cv):
         if is_train:
             with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
                 x = pickle.load(f)
-            learn_encoder(x, window_size, lr=1e-5, decay=0.0001, data=data, n_epochs=300, device=device, n_cross_val=cv)
+            learn_encoder(x, window_size, lr=1e-5, decay=0.001, data=data, n_epochs=300, device=device, n_cross_val=cv)
         else:
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
                 x_test = pickle.load(f)
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
                 y_test = pickle.load(f)
             for cv_ind in range(cv):
-                print('\n\nFold %d \n'%cv_ind)
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='har_trip',
                                   device=device, augment=100, cv=cv_ind, title='Triplet Loss')
                 exp = ClassificationPerformanceExperiment(n_states=6, encoding_size=10, path='har_trip', hidden_size=100,
                                                       in_channel=561, window_size=5, cv=cv_ind)
+                # Run cross validation for classification
                 for lr in [0.001, 0.01, 0.1]:
                     print('===> lr: ', lr)
                     tnc_acc, tnc_auc, e2e_acc, e2e_auc = exp.run(data='har_trip', n_epochs=100, lr_e2e=lr, lr_cls=lr)

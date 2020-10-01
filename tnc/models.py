@@ -42,8 +42,8 @@ class StateClassifier(torch.nn.Module):
         super(StateClassifier, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
-        self.nn = torch.nn.Sequential(torch.nn.Linear(self.input_size, self.output_size))
-        torch.nn.init.xavier_uniform_(self.nn[0].weight)
+        self.nn = torch.nn.Linear(self.input_size, self.output_size)
+        torch.nn.init.xavier_uniform_(self.nn.weight)
 
     def forward(self, x):
         logits = self.nn(x)
@@ -55,10 +55,8 @@ class WFClassifier(torch.nn.Module):
         super(WFClassifier, self).__init__()
         self.encoding_size = encoding_size
         self.output_size = output_size
-        self.classifier = nn.Sequential(
-            nn.Linear(self.encoding_size, output_size)
-        )
-        torch.nn.init.xavier_uniform_(self.classifier[0].weight)
+        self.classifier = nn.Linear(self.encoding_size, output_size)
+        torch.nn.init.xavier_uniform_(self.classifier.weight)
 
     def forward(self, x):
         c = self.classifier(x)
@@ -136,14 +134,9 @@ class WFEncoder(nn.Module):
             else:
                 self.classifier = nn.Sequential(
                     nn.Dropout(0.5),
-                    nn.Linear(self.encoding_size, 2048),
-                    nn.ELU(inplace=True),
-                    nn.BatchNorm1d(2048, eps=0.001),
-                    nn.Linear(2048, self.n_classes),
-                    torch.nn.Softmax(-1)
+                    nn.Linear(self.encoding_size, self.n_classes)
                 )
                 nn.init.xavier_uniform_(self.classifier[1].weight)
-                nn.init.xavier_uniform_(self.classifier[4].weight)
 
         self.features = nn.Sequential(
             nn.Conv1d(2, 64, kernel_size=4, stride=1, padding=1),

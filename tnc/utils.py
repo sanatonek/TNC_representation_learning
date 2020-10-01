@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib import gridspec
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms
 
@@ -52,22 +53,28 @@ def track_encoding(sample, label, encoder, window_size, path, sliding_gap=5):
     device = 'cuda'
     encoder.to(device)
     encoder.eval()
-    for t in range(0,T-window_size,sliding_gap):
-        windows = sample[:, t:t+window_size]
-        windows_label.append((np.bincount(label[:t+window_size].astype(int)).argmax()))
-        encodings.append(encoder(torch.Tensor(windows).unsqueeze(0).to(device)))
-    for t in range(sliding_gap):
+    for t in range(window_size//2,T-window_size//2,sliding_gap):
+        windows = sample[:, t-(window_size//2):t+(window_size//2)]
+        windows_label.append((np.bincount(label[t-(window_size//2):t+(window_size//2)].astype(int)).argmax()))
+        encodings.append(encoder(torch.Tensor(windows).unsqueeze(0).to(device)).view(-1,))
+    for t in range(window_size//(2*sliding_gap)):
+        # fix offset
         encodings.append(encodings[-1])
+        encodings.insert(0, encodings[0])
     encodings = torch.stack(encodings, 0)
-
 
     f, axs = plt.subplots(2)#, gridspec_kw={'height_ratios': [1, 2]})
     f.set_figheight(10)
-    f.set_figwidth(25)
-    axs[0].set_title('Time series Sample Trajectory', fontsize=34)
-    sns.lineplot(np.arange(sample.shape[1]), sample[0], ax=axs[0])
-    sns.lineplot(np.arange(sample.shape[1]), sample[1], ax=axs[0])
-    sns.lineplot(np.arange(sample.shape[1]), sample[2], ax=axs[0])
+    f.set_figwidth(27)
+
+    if 'waveform' in path:
+        gs = gridspec.GridSpec(2, 1, height_ratios=[1, 5])
+        axs[0] = plt.subplot(gs[0])
+        axs[1] = plt.subplot(gs[1])
+
+    axs[0].set_title('Time series Sample Trajectory', fontsize=30, fontweight='bold')
+    for feat in range(min(sample.shape[0], 5)):
+        sns.lineplot(np.arange(sample.shape[1]), sample[feat], ax=axs[0])
     # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[0, :-window_size], ax=axs[0])
     # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[1, :-window_size], ax=axs[0])
     # sns.lineplot(np.arange(sample.shape[1]-window_size), sample[2, :-window_size], ax=axs[0])
@@ -75,11 +82,18 @@ def track_encoding(sample, label, encoder, window_size, path, sliding_gap=5):
     axs[0].yaxis.set_tick_params(labelsize=22)
     axs[1].xaxis.set_tick_params(labelsize=22)
     axs[1].yaxis.set_tick_params(labelsize=22)
-    axs[1].set_ylabel('Encoding dimensions', fontsize=30)
+    axs[1].set_ylabel('Encoding dimensions', fontsize=28)
     axs[0].margins(x=0)
-    for t in range(label.shape[-1]):#-window_size):
-        axs[0].axvspan(t, min(t+1, label.shape[-1]-1), facecolor=['y', 'g', 'b', 'r'][label[t]], alpha=0.3)
-    axs[1].set_title('Encoding Trajectory', fontsize=30)
+    axs[0].grid(False)
+    t_0 = 0
+    for t in range(1, label.shape[-1]):
+        if label[t]==label[t-1]:
+            continue
+        else:
+            axs[0].axvspan(t_0, min(t+1, label.shape[-1]-1), facecolor=['y', 'g', 'b', 'r', 'c', 'm'][int(label[t_0])], alpha=0.5)
+            t_0 = t
+    axs[0].axvspan(t_0, label.shape[-1]-1 , facecolor=['y', 'g', 'b', 'r'][int(label[t_0])], alpha=0.5)
+    axs[1].set_title('Encoding Trajectory', fontsize=30, fontweight='bold')
     sns.heatmap(encodings.detach().cpu().numpy().T, cbar=False, linewidth=0.5, ax=axs[1], linewidths=0.05, xticklabels=False)
     f.tight_layout()
 
@@ -132,14 +146,14 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, title=
     # Save plots
     # plt.figure()
     fig, ax = plt.subplots()
-    ax.set_title("Origianl signals TSNE")
+    ax.set_title("Origianl signals TSNE", fontweight="bold")
     # sns.jointplot(x="f1", y="f2", data=df_original, kind="kde", hue='state')
     sns.scatterplot(x="f1", y="f2", data=df_original, hue="state")
     plt.savefig(os.path.join("./plots/%s"%path, "signal_distribution.pdf"))
 
     fig, ax = plt.subplots()
     # plt.figure()
-    ax.set_title("Encodings Distribution using %s"%title)
+    ax.set_title("%s"%title, fontweight="bold", fontsize=18)
     sns.scatterplot(x="f1", y="f2", data=df_encoding, hue="state")
     # sns.jointplot(x="f1", y="f2", data=df_encoding, kind="kde", hue='state')
     plt.savefig(os.path.join("./plots/%s"%path, "encoding_distribution_%d.pdf"%cv))

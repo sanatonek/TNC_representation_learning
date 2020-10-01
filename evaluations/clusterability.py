@@ -93,7 +93,7 @@ for i, path in enumerate(['simulation','simulation_cpc','simulation_trip']):
     print('Score for ', path)
     s_score = []
     db_score = []
-    for cv in range(3):
+    for cv in range(4):
         if not os.path.exists('./ckpt/%s/checkpoint_%d.pth.tar'%(path, cv)):
             continue
         checkpoint = torch.load('./ckpt/%s/checkpoint_%d.pth.tar'%(path, cv))
@@ -146,7 +146,7 @@ for i, path in enumerate(['har','har_cpc','har_trip']):
     print('Score for ', path)
     s_score = []
     db_score = []
-    for cv in range(3):
+    for cv in range(4):
         if not os.path.exists('./ckpt/%s/checkpoint_%d.pth.tar'%(path, cv)):
             continue
         checkpoint = torch.load('./ckpt/%s/checkpoint_%d.pth.tar'%(path, cv))

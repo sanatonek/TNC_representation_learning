@@ -160,10 +160,10 @@ def main(is_train, data_type, lr,  cv):
             with open(os.path.join(path, 'state_test.pkl'), 'rb') as f:
                 y_test = pickle.load(f)
             for cv_ind in range(cv):
-                print('\n\nFold %d \n'%cv_ind)
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_cpc' % data_type,
                                   title='CPC', device=device, cv=cv_ind)
                 exp = ClassificationPerformanceExperiment(path='simulation_cpc', cv=cv_ind)
+                # Run cross validation for classification
                 for lr in [0.001, 0.01, 0.1]:
                     print('===> lr: ', lr)
                     tnc_acc, tnc_auc, e2e_acc, e2e_auc = exp.run(data='%s_cpc'%data_type, n_epochs=50, lr_e2e=lr, lr_cls=lr)
@@ -178,7 +178,7 @@ def main(is_train, data_type, lr,  cv):
         if is_train:
             with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
                 x = pickle.load(f)
-            learn_encoder(x, window_size, n_epochs=200, lr=lr, decay=1e-4, n_size=15,
+            learn_encoder(x, window_size, n_epochs=300, lr=lr, decay=1e-4, n_size=15,
                           data=data_type, device=device, n_cross_val=cv)
         else:
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
@@ -187,11 +187,11 @@ def main(is_train, data_type, lr,  cv):
                 y_test = pickle.load(f)
 
             for cv_ind in range(cv):
-                print('\n\nFold %d \n'%cv_ind)
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='har_cpc',
                                   device=device, augment=100, cv=cv_ind, title='CPC')
                 exp = ClassificationPerformanceExperiment(n_states=6, encoding_size=10, path='har_cpc', hidden_size=100,
                                                         in_channel=561, window_size=5, cv=cv_ind)
+                # Run cross validation for classification
                 for lr in [0.001, 0.01, 0.1]:
                     print('===> lr: ', lr)
                     tnc_acc, tnc_auc, e2e_acc, e2e_auc = exp.run(data='har', n_epochs=50, lr_e2e=lr, lr_cls=lr)

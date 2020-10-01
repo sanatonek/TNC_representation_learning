@@ -43,8 +43,8 @@ class ClassificationPerformanceExperiment():
         batch_count = 0
         y_all, prediction_all = [], []
         for i, (x, y) in enumerate(self.train_loader):
-            if i>5:
-                break
+            # if i>5:
+            #     break
             optimizer.zero_grad()
             prediction = self.e2e_model(x)
             state_prediction = torch.argmax(prediction, dim=1)
@@ -76,7 +76,7 @@ class ClassificationPerformanceExperiment():
         batch_count = 0
         y_all, prediction_all = [], []
         for i, (x, y) in enumerate(self.train_loader):
-            if i > 5:
+            if i > 30:
                 break
             optimizer.zero_grad()
             encodings = self.encoder(x)
@@ -138,7 +138,8 @@ class ClassificationPerformanceExperiment():
             tnc_acc.append(acc)
             tnc_loss.append(loss)
             tnc_auc.append(auc)
-            loss, acc, auc, _ = self._train_end_to_end(lr_e2e)
+            # loss, acc, auc, _ = self._train_end_to_end(lr_e2e)
+            loss, acc, auc = 0, 0, 0
             etoe_acc.append(acc)
             etoe_loss.append(loss)
             etoe_auc.append(auc)
@@ -147,12 +148,13 @@ class ClassificationPerformanceExperiment():
             tnc_acc_test.append(acc)
             tnc_loss_test.append(loss)
             tnc_auc_test.append(auc)
-            loss, acc, auc, c_mtx_e2e = self._test(model=self.e2e_model) #torch.nn.Sequential(self.encoder, self.classifier))
+            # loss, acc, auc, c_mtx_e2e = self._test(model=self.e2e_model) #torch.nn.Sequential(self.encoder, self.classifier))
+            loss, acc, auc, c_mtx_e2e = 0, 0, 0, 0
             etoe_acc_test.append(acc)
             etoe_loss_test.append(loss)
             etoe_auc_test.append(auc)
 
-            if epoch%50 ==49:
+            if epoch%5 ==0:
                 print('***** Epoch %d *****'%epoch)
                 print('TNC =====> Training Loss: %.3f \t Training Acc: %.3f \t Training AUC: %.3f '
                       '\t Test Loss: %.3f \t Test Acc: %.3f \t Test AUC: %.3f'
@@ -213,9 +215,9 @@ class WFClassificationExperiment(ClassificationPerformanceExperiment):
             x = pickle.load(f)
         with open(os.path.join(wf_datapath, 'state_train.pkl'), 'rb') as f:
             y = pickle.load(f)
+
         T = x.shape[-1]
         x_window = np.split(x[:, :, :window_size * (T // window_size)],(T//window_size), -1)
-
         y_window = np.concatenate(np.split(y[:, :window_size * (T // window_size)], (T // window_size), -1), 0).astype(int)
         y_window = torch.Tensor(np.array([np.bincount(yy).argmax() for yy in y_window]))
         shuffled_inds = list(range(len(y_window)))
@@ -223,7 +225,7 @@ class WFClassificationExperiment(ClassificationPerformanceExperiment):
         x_window = torch.Tensor(np.concatenate(x_window, 0))
         x_window = x_window[shuffled_inds]
         y_window = y_window[shuffled_inds]
-        n_train = int(0.7*len(x_window))
+        n_train = int(0.6*len(x_window))
         trainset = torch.utils.data.TensorDataset(x_window[:n_train], y_window[:n_train])
         validset = torch.utils.data.TensorDataset(x_window[n_train:], y_window[n_train:])
 
