@@ -42,10 +42,12 @@ class StateClassifier(torch.nn.Module):
         super(StateClassifier, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
+        self.normalize = torch.nn.BatchNorm1d(self.input_size)
         self.nn = torch.nn.Linear(self.input_size, self.output_size)
         torch.nn.init.xavier_uniform_(self.nn.weight)
 
     def forward(self, x):
+        x = self.normalize(x)
         logits = self.nn(x)
         return logits
 
@@ -61,7 +63,6 @@ class WFClassifier(torch.nn.Module):
     def forward(self, x):
         c = self.classifier(x)
         return c
-
 
 
 class E2EStateClassifier(torch.nn.Module):

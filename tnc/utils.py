@@ -153,6 +153,8 @@ def plot_distribution(x_test, y_test, encoder, window_size, path, device, title=
 
 
     # Save plots
+    if not os.path.exists(os.path.join("./plots/%s"%path)):
+        os.mkdir(os.path.join("./plots/%s"%path))
     # plt.figure()
     fig, ax = plt.subplots()
     ax.set_title("Origianl signals TSNE", fontweight="bold")

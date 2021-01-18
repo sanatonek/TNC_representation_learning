@@ -35,9 +35,7 @@ class Discriminator(torch.nn.Module):
         self.model = torch.nn.Sequential(torch.nn.Linear(2*self.input_size, 4*self.input_size),
                                          torch.nn.ReLU(inplace=True),
                                          torch.nn.Dropout(0.5),
-                                         # torch.nn.BatchNorm1d(4*self.input_size),
-                                         torch.nn.Linear(4*self.input_size, 1),
-                                         torch.nn.Sigmoid())
+                                         torch.nn.Linear(4*self.input_size, 1))
 
         torch.nn.init.xavier_uniform_(self.model[0].weight)
         torch.nn.init.xavier_uniform_(self.model[3].weight)
@@ -52,7 +50,7 @@ class Discriminator(torch.nn.Module):
 
 
 class TNCDataset(data.Dataset):
-    def __init__(self, x, mc_sample_size, window_size, augmentation, epsilon = 3, state=None, adf=False):
+    def __init__(self, x, mc_sample_size, window_size, augmentation, epsilon=3, state=None, adf=False):
         super(TNCDataset, self).__init__()
         self.time_series = x
         self.T = x.shape[-1]
@@ -110,10 +108,17 @@ class TNCDataset(data.Dataset):
     def _find_non_neighours(self, x, t):
         T = self.time_series.shape[-1]
         if t>T/2:
-            t_n = np.random.randint(min(self.window_size//2+1, t - self.delta), (t - self.delta + 1), self.mc_sample_size)
+            t_n = np.random.randint(self.window_size//2, max((t - self.delta + 1), self.window_size//2+1), self.mc_sample_size)
         else:
             t_n = np.random.randint(min((t + self.delta), (T - self.window_size-1)), (T - self.window_size//2), self.mc_sample_size)
         x_n = torch.stack([x[:, t_ind-self.window_size//2:t_ind+self.window_size//2] for t_ind in t_n])
+
+        if len(x_n)==0:
+            rand_t = np.random.randint(0,self.window_size//5)
+            if t > T / 2:
+                x_n = x[:,rand_t:rand_t+self.window_size].unsqueeze(0)
+            else:
+                x_n = x[:, T - rand_t - self.window_size:T - rand_t].unsqueeze(0)
         return x_n
 
 
@@ -124,7 +129,8 @@ def epoch_run(loader, disc_model, encoder, device, w=0, optimizer=None, train=Tr
     else:
         encoder.eval()
         disc_model.eval()
-    loss_fn = torch.nn.BCELoss()
+    # loss_fn = torch.nn.BCELoss()
+    loss_fn = torch.nn.BCEWithLogitsLoss()
     encoder.to(device)
     disc_model.to(device)
     epoch_loss = 0
@@ -146,6 +152,7 @@ def epoch_run(loader, disc_model, encoder, device, w=0, optimizer=None, train=Tr
 
         d_p = disc_model(z_t, z_p)
         d_n = disc_model(z_t, z_n)
+
         p_loss = loss_fn(d_p, neighbors)
         n_loss = loss_fn(d_n, non_neighbors)
         n_loss_u = loss_fn(d_n, neighbors)
@@ -155,8 +162,8 @@ def epoch_run(loader, disc_model, encoder, device, w=0, optimizer=None, train=Tr
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        p_acc = torch.sum(d_p > 0.5).item() / len(z_p)
-        n_acc = torch.sum(d_n < 0.5).item() / len(z_n)
+        p_acc = torch.sum(torch.nn.Sigmoid()(d_p) > 0.5).item() / len(z_p)
+        n_acc = torch.sum(torch.nn.Sigmoid()(d_n) < 0.5).item() / len(z_n)
         epoch_acc = epoch_acc + (p_acc+n_acc)/2
         epoch_loss += loss.item()
         batch_count += 1
@@ -195,10 +202,10 @@ def learn_encoder(x, encoder, window_size, w, lr=0.001, decay=0.005, mc_sample_s
 
         for epoch in range(n_epochs+1):
             trainset = TNCDataset(x=torch.Tensor(x[:n_train]), mc_sample_size=mc_sample_size,
-                                  window_size=window_size, augmentation=augmentation, adf=True)
+                                  window_size=window_size, augmentation=augmentation)#, adf=True)
             train_loader = data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=3)
-            validset = TNCDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=mc_sample_size, adf=True,
-                                  window_size=window_size, augmentation=augmentation)
+            validset = TNCDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=mc_sample_size,
+                                  window_size=window_size, augmentation=augmentation)#, adf=True)
             valid_loader = data.DataLoader(validset, batch_size=batch_size, shuffle=True)
 
             epoch_loss, epoch_acc = epoch_run(train_loader, disc_model, encoder, optimizer=optimizer,
@@ -307,11 +314,11 @@ def main(is_train, data_type, cv, w, cont):
             for cv_ind in range(cv):
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform',
                                   device=device, augment=100, cv=cv_ind, title='TNC')
-            exp = WFClassificationExperiment(window_size=window_size, cv=cv_ind)
-            exp.run(data='waveform', n_epochs=10, lr_e2e=0.0001, lr_cls=0.01)
+            # exp = WFClassificationExperiment(window_size=window_size, cv=cv_ind)
+            # exp.run(data='waveform', n_epochs=10, lr_e2e=0.0001, lr_cls=0.01)
 
     if data_type == 'har':
-        window_size = 5
+        window_size = 4
         path = './data/HAR_data/'
         encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=10, device=device)
 
@@ -334,7 +341,7 @@ def main(is_train, data_type, cv, w, cont):
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='har', device=device,
                                   augment=100, cv=cv_ind, title='TNC')
                 exp = ClassificationPerformanceExperiment(n_states=6, encoding_size=10, path='har', hidden_size=100,
-                                                          in_channel=561, window_size=5, cv=cv_ind)
+                                                          in_channel=561, window_size=4, cv=cv_ind)
                 # Run cross validation for classification
                 for lr in [0.001, 0.01, 0.1]:
                     print('===> lr: ', lr)
