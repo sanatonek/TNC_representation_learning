@@ -98,9 +98,9 @@ class AFDB(object):
         """
         feature_means = np.mean(train_data, axis=(0, 2))
         feature_std = np.std(train_data, axis=(0, 2))
-        train_data_n = train_data - feature_means[np.newaxis, :, np.newaxis] / \
+        train_data_n = (train_data - feature_means[np.newaxis, :, np.newaxis]) / \
                        np.where(feature_std == 0, 1, feature_std)[np.newaxis, :, np.newaxis]
-        test_data_n = test_data - feature_means[np.newaxis, :, np.newaxis] /\
+        test_data_n = (test_data - feature_means[np.newaxis, :, np.newaxis]) /\
                       np.where(feature_std == 0, 1, feature_std)[np.newaxis, :, np.newaxis]
         return train_data_n, test_data_n
 
