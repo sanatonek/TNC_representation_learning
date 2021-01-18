@@ -192,6 +192,7 @@ def learn_encoder(x, window_size, data, lr=0.001, decay=0, n_epochs=100, device=
             encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=10, device=device).to(device)
         elif 'har' in data:
             encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=10, device=device).to(device)
+
         params = encoder.parameters()
         optimizer = torch.optim.Adam(params, lr=lr, weight_decay=decay)
         inds = list(range(len(x)))
@@ -248,8 +249,8 @@ def main(is_train, data, cv):
             for cv_ind in range(cv):
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_trip' % data,
                                   device=device, augment=100, cv=cv_ind, title='Triplet Loss')
-            exp = WFClassificationExperiment(window_size=window_size, data='waveform_trip')
-            exp.run(data='waveform_trip', n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
+            # exp = WFClassificationExperiment(window_size=window_size, data='waveform_trip')
+            # exp.run(data='waveform_trip', n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
 
     elif data == 'simulation':
         path = './data/simulated_data/'
@@ -276,7 +277,7 @@ def main(is_train, data, cv):
                         tnc_acc, tnc_auc, e2e_acc, e2e_auc))
 
     elif data == 'har':
-        window_size = 5
+        window_size = 4
         path = './data/HAR_data/'
         encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=10, device=device)
 

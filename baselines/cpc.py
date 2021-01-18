@@ -141,8 +141,8 @@ def main(is_train, data_type, lr,  cv):
             for cv_ind in range(cv):
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='%s_cpc' % data_type,
                                   device=device, augment=100, cv=cv_ind, title='CPC')
-            exp = WFClassificationExperiment(window_size=window_size)
-            exp.run(data='%s_cpc'%data_type, n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
+            # exp = WFClassificationExperiment(window_size=window_size)
+            # exp.run(data='%s_cpc'%data_type, n_epochs=15, lr_e2e=0.001, lr_cls=0.001)
 
     elif data_type == 'simulation':
         path = './data/simulated_data/'
@@ -151,8 +151,8 @@ def main(is_train, data_type, lr,  cv):
         if is_train:
             with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
                 x = pickle.load(f)
-            learn_encoder(x, window_size, n_epochs=200, lr=lr, decay=1e-4, n_size=15,
-                          data=data_type, device=device, n_cross_val=cv)
+            learn_encoder(x, window_size, n_epochs=400, lr=lr, decay=1e-4, n_size=15, data=data_type,
+                          device=device, n_cross_val=cv)
 
         else:
             with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
@@ -171,7 +171,7 @@ def main(is_train, data_type, lr,  cv):
                     tnc_acc, tnc_auc, e2e_acc, e2e_auc))
 
     elif data_type == 'har':
-        window_size = 5
+        window_size = 4
         path = './data/HAR_data/'
         encoder = RnnEncoder(hidden_size=100, in_channel=561, encoding_size=10, device=device)
 
