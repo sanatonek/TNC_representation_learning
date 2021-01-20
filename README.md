@@ -1,5 +1,7 @@
 # Unsupervised Representation Learning for TimeSeries with Temporal Neighborhood Coding (TNC)
 
+![Screenshot](tnc.png)
+
 Time series are often complex and rich in information, but sparsely labeled andtherefore challenging to model. TNC is a self-supervised framework for learning representations for complex, multivariate non-stationary time series. This repository contains the implementation of this framework based on the original paper:
 
 https://openreview.net/forum?id=8qDwejCuCN
