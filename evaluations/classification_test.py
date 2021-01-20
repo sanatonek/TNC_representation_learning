@@ -38,7 +38,6 @@ def epoch_run(model, dataloader, train=False, lr=0.01):
             optimizer.step()
         y_all.append(y.cpu().detach().numpy())
         prediction_all.append(torch.nn.Softmax(-1)(prediction).detach().cpu().numpy())
-        # prediction_all.append(prediction.detach().cpu().numpy())
 
         epoch_acc += torch.eq(state_prediction, y).sum().item()/len(x)
         epoch_loss += loss.item()
@@ -56,7 +55,6 @@ def epoch_run(model, dataloader, train=False, lr=0.01):
 
 
 def epoch_run_encoder(encoder, classifier, dataloader, train=False, lr=0.01):
-    # encoder.eval()
     if train:
         classifier.train()
         encoder.train()
@@ -83,7 +81,6 @@ def epoch_run_encoder(encoder, classifier, dataloader, train=False, lr=0.01):
             optimizer.step()
         y_all.append(y.cpu().detach().numpy())
         prediction_all.append(torch.nn.Softmax(-1)(prediction).detach().cpu().numpy())
-        # prediction_all.append(prediction.detach().cpu().numpy())
 
         epoch_acc += torch.eq(state_prediction, y).sum().item()/len(x)
         epoch_loss += loss.item()
@@ -236,22 +233,22 @@ def run_test(data, e2e_lr, tnc_lr, cpc_lr, trip_lr, data_path, window_size, n_cr
                                            output_size=4, device=device)
 
             tnc_encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=encoding_size, device=device)
-            tnc_checkpoint = torch.load('./ckpt/simulation/checkpoint_%d.pth.tar'%cv)
-            # tnc_checkpoint = torch.load('/scratch/gobi1/sana/TNC_results/ckpt_paper/simulation/checkpoint_%d.pth.tar' % cv)
+            # tnc_checkpoint = torch.load('./ckpt/simulation/checkpoint_%d.pth.tar'%cv)
+            tnc_checkpoint = torch.load('/scratch/gobi1/sana/TNC_results/ckpt_paper/simulation/checkpoint_%d.pth.tar' % cv)
             tnc_encoder.load_state_dict(tnc_checkpoint['encoder_state_dict'])
             tnc_classifier = StateClassifier(input_size=encoding_size, output_size=4).to(device)
             tnc_model = torch.nn.Sequential(tnc_encoder, tnc_classifier).to(device)
 
             cpc_encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=encoding_size, device=device)
-            cpc_checkpoint = torch.load('./ckpt/simulation_cpc/checkpoint_%d.pth.tar'%cv)
-            # cpc_checkpoint = torch.load('/scratch/gobi1/sana/TNC_results/ckpt_paper/simulation_cpc/checkpoint_%d.pth.tar' % cv)
+            # cpc_checkpoint = torch.load('./ckpt/simulation_cpc/checkpoint_%d.pth.tar'%cv)
+            cpc_checkpoint = torch.load('/scratch/gobi1/sana/TNC_results/ckpt_paper/simulation_cpc/checkpoint_%d.pth.tar' % cv)
             cpc_encoder.load_state_dict(cpc_checkpoint['encoder_state_dict'])
             cpc_classifier = StateClassifier(input_size=encoding_size, output_size=4).to(device)
             cpc_model = torch.nn.Sequential(cpc_encoder, cpc_classifier).to(device)
 
             trip_encoder = RnnEncoder(hidden_size=100, in_channel=3, encoding_size=encoding_size, device=device)
-            trip_checkpoint = torch.load('./ckpt/simulation_trip/checkpoint_%d.pth.tar'%cv)
-            # trip_checkpoint = torch.load('/scratch/gobi1/sana/TNC_results/ckpt_paper/simulation_trip/checkpoint_%d.pth.tar'%cv)
+            # trip_checkpoint = torch.load('./ckpt/simulation_trip/checkpoint_%d.pth.tar'%cv)
+            trip_checkpoint = torch.load('/scratch/gobi1/sana/TNC_results/ckpt_paper/simulation_trip/checkpoint_%d.pth.tar'%cv)
             trip_encoder.load_state_dict(trip_checkpoint['encoder_state_dict'])
             trip_classifier = StateClassifier(input_size=encoding_size, output_size=4).to(device)
             trip_model = torch.nn.Sequential(trip_encoder, trip_classifier).to(device)
@@ -304,33 +301,37 @@ def run_test(data, e2e_lr, tnc_lr, cpc_lr, trip_lr, data_path, window_size, n_cr
                                              encoder=trip_encoder, data_type=data, n_epochs=n_epochs, type='trip', cv=cv)
         print('TRIP: ', best_acc_trip*100, best_auc_trip, best_auprc_trip)
 
-        print('TESTING!!!!!')
-        # Validate the model
-        # ***** E2E *****
-        _, best_acc_e2e, best_auc_e2e, best_auprc_e2e, _ = epoch_run(e2e_model, dataloader=test_loader, train=False)
-        print('E2E: ', best_acc_e2e * 100, best_auc_e2e, best_auprc_e2e)
-        # ***** TNC *****
-        _, best_acc_tnc, best_auc_tnc, best_auprc_tnc, _ = epoch_run_encoder(tnc_encoder, tnc_classifier, dataloader=test_loader, train=False)
-        print('TNC: ', best_acc_tnc * 100, best_auc_tnc, best_auprc_tnc)
-        # ***** CPC *****
-        _, best_acc_cpc, best_auc_cpc, best_auprc_cpc, _ = epoch_run_encoder(cpc_encoder, cpc_classifier, dataloader=test_loader, train=False)
-        print('CPC: ', best_acc_cpc * 100, best_auc_cpc, best_auprc_cpc)
-        # ***** Trip *****
-        _, best_acc_trip, best_auc_trip, best_auprc_trip, _ = epoch_run_encoder(trip_encoder, trip_classifier, dataloader=test_loader, train=False)
-        print('TRIP: ', best_acc_trip * 100, best_auc_trip, best_auprc_trip)
+        if data == 'waveform':
+            # The waveform dataset is very small and sparse. If due to class imbalance there are no samples of a
+            # particular class in the test set, report the validation performance
+            _, test_acc_e2e, test_auc_e2e, test_auprc_e2e, _ = epoch_run(e2e_model, dataloader=valid_loader, train=False)
+            _, test_acc_tnc, test_auc_tnc, test_auprc_tnc, _ = epoch_run_encoder(tnc_encoder, tnc_classifier,
+                                                                                 dataloader=valid_loader, train=False)
+            _, test_acc_cpc, test_auc_cpc, test_auprc_cpc, _ = epoch_run_encoder(cpc_encoder, cpc_classifier,
+                                                                                 dataloader=valid_loader, train=False)
+            _, test_acc_trip, test_auc_trip, test_auprc_trip, _ = epoch_run_encoder(trip_encoder, trip_classifier,
+                                                                                    dataloader=valid_loader, train=False)
+        else:
+            _, test_acc_e2e, test_auc_e2e, test_auprc_e2e, _ = epoch_run(e2e_model, dataloader=test_loader, train=False)
+            _, test_acc_tnc, test_auc_tnc, test_auprc_tnc, _ = epoch_run_encoder(tnc_encoder, tnc_classifier,
+                                                                                 dataloader=test_loader, train=False)
+            _, test_acc_cpc, test_auc_cpc, test_auprc_cpc, _ = epoch_run_encoder(cpc_encoder, cpc_classifier,
+                                                                                 dataloader=test_loader, train=False)
+            _, test_acc_trip, test_auc_trip, test_auprc_trip, _ = epoch_run_encoder(trip_encoder, trip_classifier,
+                                                                                    dataloader=test_loader, train=False)
 
-        e2e_accs.append(best_acc_e2e)
-        e2e_aucs.append(best_auc_e2e)
-        e2e_auprcs.append(best_auprc_e2e)
-        tnc_accs.append(best_acc_tnc)
-        tnc_aucs.append(best_auc_tnc)
-        tnc_auprcs.append(best_auprc_tnc)
-        cpc_accs.append(best_acc_cpc)
-        cpc_aucs.append(best_auc_cpc)
-        cpc_auprcs.append(best_auprc_cpc)
-        trip_accs.append(best_acc_trip)
-        trip_aucs.append(best_auc_trip)
-        trip_auprcs.append(best_auprc_trip)
+        e2e_accs.append(test_acc_e2e)
+        e2e_aucs.append(test_auc_e2e)
+        e2e_auprcs.append(test_auprc_e2e)
+        tnc_accs.append(test_acc_tnc)
+        tnc_aucs.append(test_auc_tnc)
+        tnc_auprcs.append(test_auprc_tnc)
+        cpc_accs.append(test_acc_cpc)
+        cpc_aucs.append(test_auc_cpc)
+        cpc_auprcs.append(test_auprc_cpc)
+        trip_accs.append(test_acc_trip)
+        trip_aucs.append(test_auc_trip)
+        trip_auprcs.append(test_auprc_trip)
 
         with open("./outputs/%s_classifiers.txt"%data, "a") as f:
             f.write("\n\nPerformance result for a fold" )

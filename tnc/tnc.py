@@ -202,10 +202,10 @@ def learn_encoder(x, encoder, window_size, w, lr=0.001, decay=0.005, mc_sample_s
 
         for epoch in range(n_epochs+1):
             trainset = TNCDataset(x=torch.Tensor(x[:n_train]), mc_sample_size=mc_sample_size,
-                                  window_size=window_size, augmentation=augmentation)#, adf=True)
+                                  window_size=window_size, augmentation=augmentation, adf=True)
             train_loader = data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=3)
             validset = TNCDataset(x=torch.Tensor(x[n_train:]), mc_sample_size=mc_sample_size,
-                                  window_size=window_size, augmentation=augmentation)#, adf=True)
+                                  window_size=window_size, augmentation=augmentation, adf=True)
             valid_loader = data.DataLoader(validset, batch_size=batch_size, shuffle=True)
 
             epoch_loss, epoch_acc = epoch_run(train_loader, disc_model, encoder, optimizer=optimizer,
@@ -314,8 +314,8 @@ def main(is_train, data_type, cv, w, cont):
             for cv_ind in range(cv):
                 plot_distribution(x_test, y_test, encoder, window_size=window_size, path='waveform',
                                   device=device, augment=100, cv=cv_ind, title='TNC')
-            # exp = WFClassificationExperiment(window_size=window_size, cv=cv_ind)
-            # exp.run(data='waveform', n_epochs=10, lr_e2e=0.0001, lr_cls=0.01)
+            exp = WFClassificationExperiment(window_size=window_size, cv=cv_ind)
+            exp.run(data='waveform', n_epochs=10, lr_e2e=0.0001, lr_cls=0.01)
 
     if data_type == 'har':
         window_size = 4
