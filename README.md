@@ -1,8 +1,12 @@
 # Unsupervised Representation Learning for TimeSeries with Temporal Neighborhood Coding (TNC)
 
-TNC is a self-supervised framework for learning representations for complex, multivariate non-stationary time series. 
+![Screenshot](tnc.png)
 
-This repository contains all implementations and experiments for the corresponding paper. Experiments can be done on 3 different datasets. You can create the simulated dataset using the following script:
+Time series are often complex and rich in information, but sparsely labeled andtherefore challenging to model. TNC is a self-supervised framework for learning representations for complex, multivariate non-stationary time series. This repository contains the implementation of this framework based on the original paper:
+
+https://openreview.net/forum?id=8qDwejCuCN
+
+Experiments can be done on 3 different datasets. You can create the simulated dataset using the following script:
 ```
 python data/simulated_data.py
 ```
@@ -10,7 +14,7 @@ For the ECG waveform dataset, you need to download the raw recordings from the P
 
 To train the TNC encoder model, simply run:
 ```
-python -m tnc.tnc --data <DATASET_NAME> --train
+python -m tnc.tnc --data <DATASET_NAME> --train --w <DEBIASING_WEIGHT>
 ```
 You can also evaluate downstream classification performance and clusterability, as follows:
 ```
