@@ -96,7 +96,7 @@ class TNCDataset(data.Dataset):
                     corr.append(p_val/x.shape[-2])
                 except:
                     corr.append(0.6)
-            self.epsilon = len(corr) if len(np.where(np.array(corr) >= 0.01)[0])==0 else (np.where(np.array(corr) >= 0.01)[0][0] +1)
+            self.epsilon = len(corr) if len(np.where(np.array(corr) >= 0.01)[0])==0 else (np.where(np.array(corr) >= 0.01)[0][0] + 1)
             self.delta = 5*self.epsilon*self.window_size
 
         ## Random from a Gaussian
