@@ -2,14 +2,8 @@
 
 ![Screenshot](tnc.png)
 
-Time series are often complex and rich in information, but sparsely labeled andtherefore challenging to model. TNC is a self-supervised framework for learning representations for complex, multivariate non-stationary time series. This repository contains the implementation of this framework based on the [original paper](https://openreview.net/forum?id=8qDwejCuCN)
+Time series are often complex and rich in information, but sparsely labeled andtherefore challenging to model. TNC is a self-supervised framework for learning representations for complex, multivariate non-stationary time series. This repository contains the implementation of this framework based on the original [paper](https://openreview.net/forum?id=8qDwejCuCN)
 
-@inproceedings{tonekaboni2020unsupervised,
-  title={Unsupervised Representation Learning for Time Series with Temporal Neighborhood Coding},
-  author={Tonekaboni, Sana and Eytan, Danny and Goldenberg, Anna},
-  booktitle={International Conference on Learning Representations},
-  year={2020}
-}
 
 Experiments can be done on 3 different datasets. You can create the simulated dataset using the following script:
 ```
@@ -27,3 +21,14 @@ python -m evaluations.classification_test --data <DATASET_NAME>
 python -m evaluations.clusterability --data <DATASET_NAME>
 ```
 __Note__: If you are dealing with data with missing values, try manually setting the neighborhood range parameter instead of using the ADF test. The statstool implementation of this test requires fully observed timeseries. 
+
+# Reference
+
+Tonekaboni, S., Eytan, D. and Goldenberg, A., 2020, September. Unsupervised Representation Learning for Time Series with Temporal Neighborhood Coding. In International Conference on Learning Representations.
+
+@inproceedings{tonekaboni2020unsupervised,
+  title={Unsupervised Representation Learning for Time Series with Temporal Neighborhood Coding},
+  author={Tonekaboni, Sana and Eytan, Danny and Goldenberg, Anna},
+  booktitle={International Conference on Learning Representations},
+  year={2020}
+}
