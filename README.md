@@ -26,9 +26,11 @@ __Note__: If you are dealing with data with missing values, try manually setting
 
 Tonekaboni, S., Eytan, D. and Goldenberg, A., 2020, September. Unsupervised Representation Learning for Time Series with Temporal Neighborhood Coding. In International Conference on Learning Representations.
 
+```
 @inproceedings{tonekaboni2020unsupervised,
   title={Unsupervised Representation Learning for Time Series with Temporal Neighborhood Coding},
   author={Tonekaboni, Sana and Eytan, Danny and Goldenberg, Anna},
   booktitle={International Conference on Learning Representations},
   year={2020}
 }
+```
