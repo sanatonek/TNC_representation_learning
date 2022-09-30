@@ -4,7 +4,7 @@ cycler==0.10.0
 Jinja2==3.0.0a1
 jitcdde==1.4.0
 jitcxde-common==1.4.1
-joblib==0.13.2
+joblib==1.2.0
 kiwisolver==1.1.0
 MarkupSafe==1.1.1
 matplotlib==3.1.3
